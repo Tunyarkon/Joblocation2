@@ -1,0 +1,8 @@
+{
+  "name": "Crane Management System",
+  "description": "Enterprise industrial dashboard for crane management with request tracking and plot plan views.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

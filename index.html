@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Crane Management System</title>
+    <meta name="description" content="Enterprise industrial dashboard for crane management with request tracking and plot plan views." />
+    <meta property="og:title" content="Crane Management System" />
+    <meta property="og:description" content="Enterprise industrial dashboard for crane management with request tracking and plot plan views." />
+    <script>
+      (function() {
+        try {
+          var choice = localStorage.getItem('bcp_theme_user_choice');
+          // Default to Dark Theme on initial visit / refresh
+          var isDark = choice ? choice === 'dark' : true;
+          if (isDark) {
+            document.documentElement.classList.add('dark');
+            document.documentElement.style.colorScheme = 'dark';
+          } else {
+            document.documentElement.classList.remove('dark');
+            document.documentElement.style.colorScheme = 'light';
+          }
+        } catch (e) {
+          document.documentElement.classList.add('dark');
+          document.documentElement.style.colorScheme = 'dark';
+        }
+      })();
+    </script>
+    <script>
+      (function() {
+        window.addEventListener('error', function(e) {
+          console.error("Global captured error:", e);
+          var errDiv = document.getElementById('debug-error-box');
+          if (!errDiv) {
+            errDiv = document.createElement('div');
+            errDiv.id = 'debug-error-box';
+            errDiv.style = 'position:fixed;top:0;left:0;right:0;background:#dc2626;color:#ffffff;padding:16px;z-index:999999;font-family:monospace;font-size:12px;white-space:pre-wrap;box-shadow:0 4px 20px rgba(0,0,0,0.5);';
+            document.body.appendChild(errDiv);
+          }
+          errDiv.innerText = '⚠️ RUNTIME ERROR:\n' + e.message + '\n\nFile: ' + e.filename + ':' + e.lineno + ':' + e.colno + '\n' + (e.error ? e.error.stack : '');
+        });
+
+        window.addEventListener('unhandledrejection', function(e) {
+          console.error("Global unhandled rejection:", e);
+          var errDiv = document.getElementById('debug-error-box');
+          if (!errDiv) {
+            errDiv = document.createElement('div');
+            errDiv.id = 'debug-error-box';
+            errDiv.style = 'position:fixed;top:0;left:0;right:0;background:#991b1b;color:#ffffff;padding:16px;z-index:999999;font-family:monospace;font-size:12px;white-space:pre-wrap;box-shadow:0 4px 20px rgba(0,0,0,0.5);';
+            document.body.appendChild(errDiv);
+          }
+          errDiv.innerText = '⚠️ UNHANDLED PROMISE REJECTION:\n' + (e.reason ? (e.reason.stack || e.reason) : e);
+        });
+      })();
+    </script>
+  </head>
+  <body class="bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 antialiased transition-colors duration-300">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
