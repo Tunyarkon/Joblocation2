@@ -14,9 +14,12 @@ export type TurnoverWorkflowStatus = 'In Progress' | 'Rejected' | 'Reviewed' | '
 export interface PunchItem {
   id: string;
   jobId?: string;
-  item?: string; // e.g. PL-11-001
+  item?: string; // e.g. PL-11-001 or BL-11-002
   itemType?: PunchOrButtType; // 'Punch' | 'Butt'
   type?: string; // e.g. Flange Leaks / Gasket, Defect
+  locationRef?: string; // e.g. Tube R14-C08 / Butt BW-104 / Nozzle N1
+  testMethod?: string; // e.g. ECT / Hydrotest / RT / PT / Torque / Visual
+  defectPhotoUrl?: string;
   remedialWorks?: string;
   category?: PunchCategory | string;
   punchCategory?: string;
@@ -313,23 +316,100 @@ export const INITIAL_SHARED_JOBS: JobRecord[] = [
     ],
     punchList: [
       {
-        id: 'p-1',
+        id: 'PNC-1101',
         jobId: 'job-101',
         item: 'PL-11-001',
+        itemType: 'Punch',
         type: 'Flange Leaks / Gasket',
+        locationRef: 'Nozzle N1 Suction Flange #4 (11-E-101A)',
+        testMethod: 'Bolt Torque (280 Nm) & Vacuum Test',
         category: 'A',
-        discipline: 'P',
+        punchCategory: 'A',
+        punchStatus: 'Closed',
+        discipline: 'M - Mechanical',
+        contractor: 'Rotary Engineering Co., Ltd.',
+        remedialWorks: 'Replace cracked spiral wound gasket on suction nozzle N1 of 11-E-101A and re-torque to 280 Nm.',
         description: 'Replace cracked spiral wound gasket on suction nozzle N1 of 11-E-101A and re-torque to 280 Nm.',
-        contractor: 'Thai Nippon Steel Engineering',
         planDate: '2026-09-24',
+        plannedDate: '2026-09-24',
         cpSign: 'M. Tanawat',
         cpDate: '2026-09-25',
+        isContractorClosed: true,
+        closedBy: 'M. Tanawat (Rotary Lead)',
+        closedDate: '2026-09-25',
+        isVerified: true,
+        verifiedBy: 'Somchai Prasert (Job Lead)',
+        verificationTimestamp: '2026-09-25 14:00',
         photoRequired: true,
         status: 'Resolved',
         reportedBy: 'J. Somchai (OPS Lead)',
         timestamp: '2026-09-24 10:10',
         resolutionComment: 'New 316SS spiral wound gasket installed, cross-pattern torqued to 280 Nm. Vacuum leak test passed.',
         resolvedAt: '2026-09-25 14:00'
+      },
+      {
+        id: 'BUTT-1102',
+        jobId: 'job-101',
+        item: 'BL-11-002',
+        itemType: 'Butt',
+        type: 'Tube-to-Tubesheet Expansion & Seal Weld',
+        locationRef: 'Tube Bundle Pass 2 (Row 14 Col 08-12)',
+        testMethod: 'Eddy Current (ECT) & Pneumatic Shell Test',
+        category: 'A',
+        punchCategory: 'A',
+        punchStatus: 'Closed',
+        discipline: 'M - Mechanical',
+        contractor: 'BCP Maintenance Team (ฝ่ายซ่อมบำรุงโรงกลั่น)',
+        remedialWorks: 'Re-tubing & hydraulic roller expansion on 5 condenser tubes (Row 14 Col 08-12) + tapered SS316L plug weld on Row 06 Col 19 after ECT >60% wall loss.',
+        description: 'Re-tubing & hydraulic roller expansion on 5 condenser tubes (Row 14 Col 08-12) + tapered SS316L plug weld on Row 06 Col 19 after ECT >60% wall loss.',
+        planDate: '2026-09-26',
+        plannedDate: '2026-09-26',
+        cpSign: 'Sompong K.',
+        cpDate: '2026-09-27',
+        isContractorClosed: true,
+        closedBy: 'Sompong K. (Exchanger Specialist)',
+        closedDate: '2026-09-27',
+        isVerified: true,
+        verifiedBy: 'Somchai Prasert (Job Lead)',
+        verificationTimestamp: '2026-09-27 16:30',
+        photoRequired: true,
+        status: 'Resolved',
+        reportedBy: 'Dr. Anan S. (TSS QA)',
+        timestamp: '2026-09-25 09:20',
+        resolutionComment: '5 new SA-214 tubes expanded and 1 tube plugged; shell-side hydrotest held at 18.5 barg for 4 hrs with zero weep.',
+        resolvedAt: '2026-09-27 16:30'
+      },
+      {
+        id: 'BUTT-1103',
+        jobId: 'job-101',
+        item: 'BL-11-003',
+        itemType: 'Butt',
+        type: 'Piping Butt Weld NDT & Post-Hydro Insulation',
+        locationRef: 'Overhead Vapor Spool Butt Joint BW-104 (16" Sch40)',
+        testMethod: '100% Radiography (RT) & Dye Penetrant (PT)',
+        category: 'B',
+        punchCategory: 'B',
+        punchStatus: 'Closed',
+        discipline: 'M - Mechanical',
+        contractor: 'Toyo-Thai Corporation',
+        remedialWorks: 'Complete 100% RT film review on overhead condenser tie-in butt weld BW-104 and reinstall thermal insulation collar after hydrotest.',
+        description: 'Complete 100% RT film review on overhead condenser tie-in butt weld BW-104 and reinstall thermal insulation collar after hydrotest.',
+        planDate: '2026-09-27',
+        plannedDate: '2026-09-27',
+        cpSign: 'Wichai T.',
+        cpDate: '2026-09-28',
+        isContractorClosed: true,
+        closedBy: 'Wichai T. (NDT Coordinator)',
+        closedDate: '2026-09-28',
+        isVerified: true,
+        verifiedBy: 'Somchai Prasert (Job Lead)',
+        verificationTimestamp: '2026-09-28 08:45',
+        photoRequired: false,
+        status: 'Resolved',
+        reportedBy: 'Pongsakorn K. (QA Inspector)',
+        timestamp: '2026-09-26 11:00',
+        resolutionComment: 'RT Film #RT-101-BW104 accepted per ASME VIII Div.1. Insulation collar restored.',
+        resolvedAt: '2026-09-28 08:45'
       }
     ],
     createdAt: '2026-09-24'
@@ -467,6 +547,96 @@ export const INITIAL_SHARED_JOBS: JobRecord[] = [
       }
     ],
     createdAt: '2026-09-29'
+  },
+  {
+    id: 'job-105',
+    jobNo: 'TO-PK-2026-015',
+    title: 'Raw Crude Booster Pump S2-P-101A/B API 682 Mechanical Seal & Suction Strainer Handover',
+    eventName: 'Annual Turnaround 2026',
+    plant: 'Phra Khanong',
+    unit: 'APS-1 (Atmospheric Distillation Unit 1)',
+    unitId: 'unit-aps1',
+    system: 'System-11 (Crude Feed Preheat & Desalter System)',
+    systemId: 'sys-11',
+    workOrder: 'WO-885219',
+    description: 'Complete overhaul of Raw Crude Booster Pumps S2-P-101A/B, installation of API 682 Plan 53B seal skid, laser alignment, and final turnover acceptance.',
+    assetTag: 'S2-P-101A/B',
+    assetDescription: 'Raw Crude Booster Pumps & Plan 53B Seal Skid',
+    refCode: '10-34',
+    hierarchyNodeId: 'unit-aps1-eq-S2_P_101A_B-4',
+    hierarchyLevel: 'Level 3 • Equipment',
+    hierarchyPath: 'APS-1 > System-11 > S2-P-101A/B',
+    isCriticalPath: false,
+    gridZone: 'B1',
+    plotPlanX: 34.0,
+    plotPlanY: 41.5,
+    plotPlanId: 'plan-aps1',
+    discipline: 'M - Mechanical',
+    equipmentType: 'Rotating Equipment',
+    jobLead: 'นายสมชาย ใจมั่น (Lead Mechanical Engineer)',
+    attachments: [
+      { name: 'Laser_Alignment_Certificate_P101AB.pdf', size: '1.5 MB', type: 'pdf', uploadedAt: '2026-09-29 16:20' }
+    ],
+    signatures: [
+      { id: 'sig-105-1', jobId: 'job-105', role: 'Operations (ฝ่ายปฏิบัติการผลิต)', name: 'Kitti Chai (Operations Supt)', decision: 'Accept', signedAt: '2026-09-30 09:00', acceptanceStatus: 'Accepted' },
+      { id: 'sig-105-2', jobId: 'job-105', role: 'QA-QC (ฝ่ายตรวจสอบและควบคุมคุณภาพ)', name: 'Dr. Anan S. (TSS QA)', decision: 'Accept', signedAt: '2026-09-30 10:30', acceptanceStatus: 'Accepted' },
+      { id: 'sig-105-3', jobId: 'job-105', role: 'Lead Turnaround Engineer (หัวหน้าวิศวกรผู้รับมอบ)', name: 'Somchai Prasert, PE', decision: 'Accept', signedAt: '2026-09-30 11:45', acceptanceStatus: 'Accepted' }
+    ],
+    punchList: [],
+    acceptanceStatus: 'Accepted',
+    turnoverStatus: 'Completed',
+    createdAt: '2026-09-26'
+  },
+  {
+    id: 'job-106',
+    jobNo: 'TO-SR-2026-009',
+    title: 'HCU Feed Preheat Exchanger Bank A (E-204) High-Pressure Breech-Lock Closure & Hydro-test',
+    eventName: 'Major Overhaul Q3',
+    plant: 'Sriracha',
+    unit: 'HCU Unit 4 (Hydrocracker Area)',
+    unitId: 'floc-sr-area-hcu',
+    system: 'SR-HCU-SYS-PREHEAT (Feed Preheat Exchanger Train)',
+    systemId: 'floc-sr-sys-preheat',
+    workOrder: 'WO-886410',
+    description: 'High-pressure 160 bar shell & tube bundle extraction, eddy current inspection, diaphragm gasket renewal, and hydraulic bolt tensioning on E-204.',
+    assetTag: 'E-204',
+    assetDescription: 'HCU Feed Preheat Exchanger Bank A (350°C / 160 bar)',
+    refCode: 'SR-HCU-EQ-E204',
+    hierarchyNodeId: 'floc-sr-eq-e204',
+    hierarchyLevel: 'Level 3 • Equipment',
+    hierarchyPath: 'SR-AREA-HCU > SR-HCU-SYS-PREHEAT > E-204',
+    isCriticalPath: true,
+    gridZone: 'D4',
+    plotPlanX: 50.8,
+    plotPlanY: 57.5,
+    plotPlanId: 'plan-overall',
+    discipline: 'M - Mechanical',
+    equipmentType: 'Static Equipment',
+    jobLead: 'นายวิชัย เลิศวิทยา (Lead Turnaround Supervisor)',
+    attachments: [
+      { name: 'E204_160Bar_Hydrotest_Chart.pdf', size: '2.8 MB', type: 'pdf', uploadedAt: '2026-09-30 08:45' }
+    ],
+    signatures: [
+      { id: 'sig-106-1', jobId: 'job-106', role: 'Operations (ฝ่ายปฏิบัติการผลิต)', name: 'Nattapong V. (OPS Lead)', decision: 'Accept', signedAt: '2026-09-30 13:20', acceptanceStatus: 'Accepted' },
+      { id: 'sig-106-2', jobId: 'job-106', role: 'QA-QC (ฝ่ายตรวจสอบและควบคุมคุณภาพ)', name: 'Pongsakorn K. (QA Inspector)', decision: 'Accept', signedAt: '2026-09-30 14:10', acceptanceStatus: 'Accepted' }
+    ],
+    punchList: [
+      {
+        id: 'p-106-1',
+        jobId: 'job-106',
+        item: 'PL-04-001',
+        type: 'Touch-up Painting',
+        category: 'B',
+        discipline: 'Ins',
+        description: 'Install aluminum cladding weather shield on E-204 channel head acoustic insulation after hot bolting check.',
+        contractor: 'Sriracha Thermal Insulation Co.',
+        planDate: '2026-10-04',
+        status: 'Open',
+        reportedBy: 'Pongsakorn K. (QA)',
+        timestamp: '2026-09-30 14:30'
+      }
+    ],
+    createdAt: '2026-09-28'
   }
 ];
 
@@ -743,7 +913,12 @@ export const PlantTurnSharedProvider: React.FC<{ children: ReactNode }> = ({ chi
         if (saved) {
           const parsed = JSON.parse(saved);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            return parsed.map(normalizeJobRecord);
+            const normalizedSaved = parsed.map(normalizeJobRecord);
+            const savedIds = new Set(normalizedSaved.map(j => j.id));
+            const missingSeedJobs = INITIAL_SHARED_JOBS
+              .filter(seed => !savedIds.has(seed.id))
+              .map(normalizeJobRecord);
+            return [...normalizedSaved, ...missingSeedJobs];
           }
         }
       } catch (err) {

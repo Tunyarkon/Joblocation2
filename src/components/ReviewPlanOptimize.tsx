@@ -7,10 +7,11 @@ import {
   AlertCircle, ShieldAlert, Layers, Lock, Unlock, History,
   FileText, RotateCcw, Wind, Compass, Calendar, ArrowRight,
   HelpCircle, CheckSquare, Square, Truck, ZoomIn, ZoomOut,
-  User, ClipboardCheck, ArrowLeftRight, Wrench, Share2
+  User, ClipboardCheck, ArrowLeftRight, Wrench, Share2, TrendingDown, Sliders
 } from 'lucide-react';
 import { PlanningJobItem, EquipmentResource } from './optimizerData';
 import { useLanguage } from '../context/LanguageContext';
+import CraneOptimizeCostSavingDashboard from './CraneOptimizeCostSavingDashboard';
 import {
   getCraneAuditLogs,
   addCraneAuditLog,
@@ -36,6 +37,8 @@ interface ReviewPlanOptimizeProps {
   isScaffolding?: boolean;
   /** Plant selected in the top header bar; the request queue follows it. */
   globalPlantFilter?: 'All' | 'Phra Khanong' | 'Sriracha';
+  /** Optional initial mode: 'engineering' or 'cost-saving' */
+  defaultMode?: 'engineering' | 'cost-saving';
 }
 
 // Known plant obstacles for spatial conflict detection
@@ -112,8 +115,14 @@ export default function ReviewPlanOptimize({
   onNavigateToDashboard,
   isScaffolding = false,
   globalPlantFilter = 'All',
+  defaultMode = 'engineering',
 }: ReviewPlanOptimizeProps) {
   const { isTh } = useLanguage();
+  const [viewMode, setViewMode] = useState<'engineering' | 'cost-saving'>(defaultMode);
+
+  useEffect(() => {
+    setViewMode(defaultMode);
+  }, [defaultMode]);
 
   // Currently logged-in authorized reviewer engineer
   const currentReviewer = 'Dr. Narongrit S. (Lead Rigging Engineer, Level 3)';
@@ -201,12 +210,105 @@ export default function ReviewPlanOptimize({
   const [showUnlockModal, setShowUnlockModal] = useState<boolean>(false);
   const [unlockReasonInput, setUnlockReasonInput] = useState<string>('');
 
+  // Auto-Optimizer Factor Configuration State
+  interface OptimizerFactorConfig {
+    preset: 'balanced' | 'safety_first' | 'cost_saving' | 'urgent_speed' | 'custom';
+    rightSizingWeight: number;      // 0 - 100 (Default 30)
+    safetyBufferWeight: number;     // 0 - 100 (Default 25)
+    costEfficiencyWeight: number;   // 0 - 100 (Default 25)
+    readinessWeight: number;        // 0 - 100 (Default 20)
+    minSafetyMarginPct: number;     // 15% - 40% (Default 20%)
+    maxGbpLimitRatioPct: number;    // 70% - 100% (Default 100%)
+    simulatedWindKnots: number;     // 8 - 28 kts (Default 14 kts)
+    simulationScope: 'pending_only' | 'all_unlocked';
+    allowAutoTimeShift: boolean;
+    preferSharedConsolidation: boolean;
+  }
+
+  const DEFAULT_FACTOR_CONFIG: OptimizerFactorConfig = {
+    preset: 'balanced',
+    rightSizingWeight: 30,
+    safetyBufferWeight: 25,
+    costEfficiencyWeight: 25,
+    readinessWeight: 20,
+    minSafetyMarginPct: 20,
+    maxGbpLimitRatioPct: 100,
+    simulatedWindKnots: 14,
+    simulationScope: 'all_unlocked',
+    allowAutoTimeShift: true,
+    preferSharedConsolidation: true
+  };
+
+  const [optimizerFactorConfig, setOptimizerFactorConfig] = useState<OptimizerFactorConfig>(DEFAULT_FACTOR_CONFIG);
+  const [showFactorConfigPanel, setShowFactorConfigPanel] = useState<boolean>(true);
+
+  const applyFactorPreset = (preset: OptimizerFactorConfig['preset']) => {
+    if (preset === 'balanced') {
+      setOptimizerFactorConfig(prev => ({
+        ...DEFAULT_FACTOR_CONFIG,
+        simulationScope: prev.simulationScope
+      }));
+    } else if (preset === 'safety_first') {
+      setOptimizerFactorConfig(prev => ({
+        ...prev,
+        preset: 'safety_first',
+        rightSizingWeight: 20,
+        safetyBufferWeight: 50,
+        costEfficiencyWeight: 10,
+        readinessWeight: 20,
+        minSafetyMarginPct: 30,
+        maxGbpLimitRatioPct: 85,
+        simulatedWindKnots: 18,
+        allowAutoTimeShift: true,
+        preferSharedConsolidation: false
+      }));
+    } else if (preset === 'cost_saving') {
+      setOptimizerFactorConfig(prev => ({
+        ...prev,
+        preset: 'cost_saving',
+        rightSizingWeight: 40,
+        safetyBufferWeight: 15,
+        costEfficiencyWeight: 35,
+        readinessWeight: 10,
+        minSafetyMarginPct: 20,
+        maxGbpLimitRatioPct: 100,
+        simulatedWindKnots: 14,
+        allowAutoTimeShift: true,
+        preferSharedConsolidation: true
+      }));
+    } else if (preset === 'urgent_speed') {
+      setOptimizerFactorConfig(prev => ({
+        ...prev,
+        preset: 'urgent_speed',
+        rightSizingWeight: 20,
+        safetyBufferWeight: 20,
+        costEfficiencyWeight: 15,
+        readinessWeight: 45,
+        minSafetyMarginPct: 20,
+        maxGbpLimitRatioPct: 100,
+        simulatedWindKnots: 14,
+        allowAutoTimeShift: true,
+        preferSharedConsolidation: true
+      }));
+    }
+  };
+
   // Auto-Optimizer Preview Simulation State
   interface OptimizerPreviewItem {
     job: PlanningJobItem;
     recommendedCrane?: EquipmentResource;
     score: number;
     safetyResult: 'PASS' | 'FAIL' | 'PENDING';
+    safetyMarginPct?: number;
+    gbpRatioPct?: number;
+    estSavingThb?: number;
+    shiftedSlot?: { start: string; end: string };
+    factorBreakdown?: {
+      rightSizingPts: number;
+      safetyPts: number;
+      costPts: number;
+      readinessPts: number;
+    };
     reason: string;
     hasConflict: boolean;
     selected: boolean;
@@ -670,18 +772,38 @@ export default function ReviewPlanOptimize({
   }, [selectedJob, currentCoords, effectiveCrane?.id]);
 
   // =========================================================================
-  // SUITABILITY SCORE CALCULATION
+  // SUITABILITY SCORE CALCULATION (FACTOR-DRIVEN MULTI-OBJECTIVE SCORING)
   // =========================================================================
-  const getSuitabilityScore = (crane: EquipmentResource, job: PlanningJobItem) => {
+  const getSuitabilityScore = (
+    crane: EquipmentResource,
+    job: PlanningJobItem,
+    cfg: OptimizerFactorConfig = optimizerFactorConfig
+  ) => {
     const val = evaluateEngineeringValidation(crane, job);
+    const gbpRatioPct = Math.round((val.groundBearingPressureKPa / Math.max(1, val.soilBearingLimitKPa)) * 100);
 
-    if (val.result === 'FAIL') {
+    // Check against configurable Factor Config safety & environmental gates
+    const failsConfiguredMargin = val.safetyMarginPercent < cfg.minSafetyMarginPct;
+    const failsConfiguredGbp = gbpRatioPct > cfg.maxGbpLimitRatioPct;
+    const failsSimulatedWind = cfg.simulatedWindKnots > val.windLimitKnots;
+
+    if (val.result === 'FAIL' || failsConfiguredMargin || failsConfiguredGbp || failsSimulatedWind) {
+      const customFailReason = failsSimulatedWind
+        ? (isTh ? `ความเร็วลมจำลอง (${cfg.simulatedWindKnots} kts) เกินขีดจำกัดเครน (${val.windLimitKnots} kts)` : `Simulated wind (${cfg.simulatedWindKnots} kts) exceeds crane limit (${val.windLimitKnots} kts)`)
+        : failsConfiguredMargin
+          ? (isTh ? `Safety Margin (+${val.safetyMarginPercent}%) ต่ำกว่าเกณฑ์ที่ตั้งไว้ (${cfg.minSafetyMarginPct}%)` : `Safety Margin (+${val.safetyMarginPercent}%) below configured ${cfg.minSafetyMarginPct}% gate`)
+          : failsConfiguredGbp
+            ? (isTh ? `แรงกดดิน GBP (${gbpRatioPct}%) เกินเกณฑ์ที่ตั้งไว้ (${cfg.maxGbpLimitRatioPct}%)` : `Soil GBP (${gbpRatioPct}%) exceeds configured ${cfg.maxGbpLimitRatioPct}% limit`)
+            : (isTh ? 'ไม่ผ่านเกณฑ์ความปลอดภัย' : 'Safety Gate Failed');
+
       return {
         score: 0,
-        label: isTh ? 'ไม่ผ่านเกณฑ์ความปลอดภัย' : 'Safety Gate Failed',
+        label: customFailReason,
         tier: 'failed' as const,
         eligible: false,
-        validation: val
+        validation: val,
+        gbpRatioPct,
+        factorBreakdown: { rightSizingPts: 0, safetyPts: 0, costPts: 0, readinessPts: 0 }
       };
     }
 
@@ -691,7 +813,9 @@ export default function ReviewPlanOptimize({
         label: isTh ? 'รอการประเมินสเปก' : 'Pending Verification',
         tier: 'pending' as const,
         eligible: false,
-        validation: val
+        validation: val,
+        gbpRatioPct,
+        factorBreakdown: { rightSizingPts: 10, safetyPts: 10, costPts: 5, readinessPts: 5 }
       };
     }
 
@@ -701,28 +825,73 @@ export default function ReviewPlanOptimize({
         label: isTh ? 'อยู่ระหว่างซ่อมบำรุง' : 'In Maintenance',
         tier: 'failed' as const,
         eligible: false,
-        validation: val
+        validation: val,
+        gbpRatioPct,
+        factorBreakdown: { rightSizingPts: 0, safetyPts: 0, costPts: 0, readinessPts: 0 }
       };
     }
 
-    let score = 50;
-    const capRatio = crane.capacityTon / job.loadWeightTon;
-    if (capRatio >= 1.25 && capRatio <= 2.2) {
-      score += 25; // Ideal sizing
-    } else if (capRatio > 2.2 && capRatio <= 3.5) {
-      score += 15;
-    } else if (capRatio > 3.5) {
-      score -= 5;
+    // Normalize weights so total weight = 100
+    const totalRawWeight = Math.max(
+      1,
+      cfg.rightSizingWeight + cfg.safetyBufferWeight + cfg.costEfficiencyWeight + cfg.readinessWeight
+    );
+    const wRightSize = (cfg.rightSizingWeight / totalRawWeight) * 100;
+    const wSafety = (cfg.safetyBufferWeight / totalRawWeight) * 100;
+    const wCost = (cfg.costEfficiencyWeight / totalRawWeight) * 100;
+    const wReadiness = (cfg.readinessWeight / totalRawWeight) * 100;
+
+    // 1. Right-Sizing Factor (0.0 - 1.0): Ideal capacity ratio is 1.25x to 2.2x of loadWeightTon
+    const capRatio = crane.capacityTon / Math.max(1, job.loadWeightTon);
+    let rightSizeNorm = 0.55;
+    if (capRatio >= 1.25 && capRatio <= 2.0) {
+      rightSizeNorm = 1.0;
+    } else if (capRatio > 2.0 && capRatio <= 3.0) {
+      rightSizeNorm = 0.82;
+    } else if (capRatio > 3.0 && capRatio <= 4.5) {
+      rightSizeNorm = 0.62;
+    } else if (capRatio > 4.5) {
+      rightSizeNorm = 0.38; // Penalize severe over-sizing
     }
 
-    if (crane.status === 'Available') score += 15;
-    if (crane.fuelLevelPercent && crane.fuelLevelPercent >= 80) score += 5;
-    if (crane.efficiencyRating && crane.efficiencyRating >= 90) score += 5;
+    // 2. Safety Buffer Factor (0.0 - 1.0): Higher safety margin & lower GBP ratio
+    const marginHeadroom = Math.min(1.0, Math.max(0.3, val.safetyMarginPercent / 85));
+    const gbpHeadroom = Math.min(1.0, Math.max(0.3, (115 - gbpRatioPct) / 65));
+    const safetyNorm = marginHeadroom * 0.65 + gbpHeadroom * 0.35;
 
-    const finalScore = Math.min(100, Math.max(15, score));
+    // 3. Cost Efficiency & Shared Consolidation Factor (0.0 - 1.0)
+    // Lower hourly rate relative to fleet max (฿12,500/hr)
+    const rateNorm = Math.min(1.0, Math.max(0.35, 1 - (crane.hourlyRateThb - 2500) / 11500));
+    const hasCoLocatedSameDay = cfg.preferSharedConsolidation && jobs.some(
+      other =>
+        other.id !== job.id &&
+        other.plant === job.plant &&
+        other.date === job.date &&
+        other.assignedCraneId === crane.id &&
+        other.status !== 'Rejected'
+    );
+    const costNorm = Math.min(1.0, rateNorm + (hasCoLocatedSameDay ? 0.18 : 0));
+
+    // 4. Readiness & Priority Urgency Factor (0.0 - 1.0)
+    let readinessNorm = crane.status === 'Available' ? 0.85 : 0.6;
+    if (crane.fuelLevelPercent && crane.fuelLevelPercent >= 80) readinessNorm += 0.08;
+    if (crane.efficiencyRating && crane.efficiencyRating >= 90) readinessNorm += 0.07;
+    if (job.priority === 'Critical' || job.priority === 'High') {
+      readinessNorm = Math.min(1.0, readinessNorm + 0.05);
+    }
+    readinessNorm = Math.min(1.0, readinessNorm);
+
+    const rightSizingPts = Math.round(wRightSize * rightSizeNorm);
+    const safetyPts = Math.round(wSafety * safetyNorm);
+    const costPts = Math.round(wCost * costNorm);
+    const readinessPts = Math.round(wReadiness * readinessNorm);
+
+    const rawWeighted = rightSizingPts + safetyPts + costPts + readinessPts;
+    const finalScore = Math.min(100, Math.max(18, rawWeighted));
+
     const label = finalScore >= 85
       ? (isTh ? 'เหมาะสมที่สุด (แนะนำ)' : 'Recommended Match')
-      : finalScore >= 50
+      : finalScore >= 60
         ? (isTh ? 'ทางเลือกสำรอง' : 'Alternative Match')
         : (isTh ? 'ความเหมาะสมต่ำ' : 'Low Suitability');
     const tier = finalScore >= 85 ? ('recommended' as const) : ('alternative' as const);
@@ -732,48 +901,105 @@ export default function ReviewPlanOptimize({
       label,
       tier,
       eligible: true,
-      validation: val
+      validation: val,
+      gbpRatioPct,
+      factorBreakdown: {
+        rightSizingPts,
+        safetyPts,
+        costPts,
+        readinessPts
+      }
     };
   };
 
   // =========================================================================
-  // RUN AUTO-OPTIMIZER ENGINE (SIMULATION PREVIEW)
+  // RUN AUTO-OPTIMIZER ENGINE (FACTOR-CONFIGURED SIMULATION PREVIEW)
   // =========================================================================
-  const handleOpenAutoOptimizer = () => {
-    const pendingRequests = jobs.filter(j => j.status === 'Pending Review');
+  const computeAutoOptimizerPreview = (cfg: OptimizerFactorConfig = optimizerFactorConfig): OptimizerPreviewItem[] => {
+    const targetJobs = jobs.filter(j => {
+      if (cfg.simulationScope === 'pending_only') {
+        return j.status === 'Pending Review';
+      }
+      // 'all_unlocked': include Pending Review and Optimized (not yet locked Assigned or Rejected)
+      return j.status === 'Pending Review' || (j.status === 'Optimized' && j.assignmentStatus !== 'Locked');
+    });
 
-    if (pendingRequests.length === 0) {
-      showToast(isTh ? 'ไม่มีคำขอที่อยู่ในสถานะรอตรวจสอบ (Pending Review)' : 'No pending requests to optimize.', 'info');
-      return;
-    }
+    // Fallback to all non-rejected jobs if filter yielded 0 so simulation modal is always interactive
+    const effectiveList = targetJobs.length > 0
+      ? targetJobs
+      : jobs.filter(j => j.status !== 'Rejected');
 
-    const previewList: OptimizerPreviewItem[] = pendingRequests.map(job => {
-      const candidates = equipment
-        .map(crane => {
-          const suitability = getSuitabilityScore(crane, job);
-          const conflicts = detectConflicts(job, job.markingLocation, crane.id);
-          return { crane, suitability, conflicts };
-        })
+    return effectiveList.map(job => {
+      // Evaluate all cranes under active Factor Config
+      const evaluated = equipment.map(crane => {
+        const suitability = getSuitabilityScore(crane, job, cfg);
+        const conflicts = detectConflicts(job, job.markingLocation, crane.id);
+        return { crane, suitability, conflicts };
+      });
+
+      // 1. Direct conflict-free eligible candidates
+      const directCandidates = evaluated
         .filter(c => c.suitability.eligible && !c.conflicts.hasConflict)
         .sort((a, b) => b.suitability.score - a.suitability.score);
 
-      if (candidates.length > 0) {
-        const best = candidates[0];
+      // 2. If allowAutoTimeShift is enabled and a higher-scoring crane has only a time-overlap conflict, check if a same-day slot exists
+      let chosenCandidate = directCandidates[0];
+      let shiftedSlot: { start: string; end: string } | undefined;
+
+      if (cfg.allowAutoTimeShift) {
+        const timeShiftCandidates = evaluated
+          .filter(c => c.suitability.eligible && c.conflicts.hasConflict && c.conflicts.conflictType === 'Crane Double Booking')
+          .sort((a, b) => b.suitability.score - a.suitability.score);
+
+        if (timeShiftCandidates.length > 0) {
+          const topTimeShift = timeShiftCandidates[0];
+          // Check if no direct candidate exists OR topTimeShift scores significantly higher (+8 pts)
+          if (!chosenCandidate || topTimeShift.suitability.score >= chosenCandidate.suitability.score + 8) {
+            const avail = getCraneAvailability(topTimeShift.crane, job);
+            if (avail.slot) {
+              chosenCandidate = topTimeShift;
+              shiftedSlot = avail.slot;
+            }
+          }
+        }
+      }
+
+      if (chosenCandidate) {
+        const best = chosenCandidate;
+        const val = best.suitability.validation;
+        // Estimate cost saving vs next-larger crane tier + shared mobilization
+        const largerCranes = equipment.filter(e => e.capacityTon > best.crane.capacityTon);
+        const avgLargerRate = largerCranes.length > 0
+          ? largerCranes.reduce((s, e) => s + e.hourlyRateThb, 0) / largerCranes.length
+          : best.crane.hourlyRateThb * 1.35;
+        const rateDiffSaving = Math.max(2500, Math.round((avgLargerRate - best.crane.hourlyRateThb) * 4));
+        const sharedMobBonus = cfg.preferSharedConsolidation ? 8500 : 0;
+        const estSavingThb = rateDiffSaving + sharedMobBonus;
+
+        const breakdown = best.suitability.factorBreakdown;
+        const reasonText = isTh
+          ? `ผ่านเกณฑ์ Safety +${val.safetyMarginPercent}% (ขั้นต่ำ ${cfg.minSafetyMarginPct}%) · GBP ${best.suitability.gbpRatioPct}%${shiftedSlot ? ` · เลื่อนเวลาอัตโนมัติเป็น ${shiftedSlot.start}-${shiftedSlot.end}` : ''} · ประหยัด ~฿${estSavingThb.toLocaleString()}`
+          : `Safety +${val.safetyMarginPercent}% (≥${cfg.minSafetyMarginPct}% gate) · GBP ${best.suitability.gbpRatioPct}%${shiftedSlot ? ` · Auto-shifted to ${shiftedSlot.start}-${shiftedSlot.end}` : ''} · Est. saving ฿${estSavingThb.toLocaleString()}`;
+
         return {
           job,
           recommendedCrane: best.crane,
           score: best.suitability.score,
           safetyResult: 'PASS',
-          reason: `Auto-matched based on load chart safety buffer (${best.suitability.score}% score)`,
+          safetyMarginPct: val.safetyMarginPercent,
+          gbpRatioPct: best.suitability.gbpRatioPct,
+          estSavingThb,
+          shiftedSlot,
+          factorBreakdown: breakdown,
+          reason: reasonText,
           hasConflict: false,
           selected: true
         };
       } else {
         const failReasons: string[] = [];
-        equipment.forEach(c => {
-          const v = evaluateEngineeringValidation(c, job);
-          if (v.result === 'FAIL' && v.reasons.length > 0) {
-            failReasons.push(`${c.id}: ${v.reasons[0]}`);
+        evaluated.forEach(c => {
+          if (!c.suitability.eligible) {
+            failReasons.push(`${c.crane.name}: ${c.suitability.label}`);
           }
         });
         const conflictCheck = detectConflicts(job, job.markingLocation);
@@ -782,16 +1008,49 @@ export default function ReviewPlanOptimize({
           job,
           score: 0,
           safetyResult: 'FAIL',
+          safetyMarginPct: 0,
+          gbpRatioPct: 0,
+          estSavingThb: 0,
           reason: conflictCheck.hasConflict
-            ? `Blocked by spatial/schedule conflict: ${conflictCheck.conflicts[0]}`
-            : failReasons.length > 0 ? failReasons[0] : 'No available fleet crane meets load chart or certification criteria',
+            ? (isTh ? `ติดข้อขัดแย้งพื้นที่/เวลา: ${conflictCheck.conflicts[0]}` : `Blocked by spatial/schedule conflict: ${conflictCheck.conflicts[0]}`)
+            : failReasons.length > 0
+              ? failReasons[0]
+              : (isTh ? 'ไม่มีเครนที่ผ่านเกณฑ์ตัวแปรที่ตั้งค่าไว้ (ลองลดเกณฑ์ Safety Margin หรือความเร็วลม)' : 'No crane passes current Factor Config thresholds'),
           hasConflict: conflictCheck.hasConflict,
           selected: false
         };
       }
     });
+  };
 
-    setOptimizerPreviewItems(previewList);
+  // Automatically recompute simulation preview whenever Factor Config changes while modal is open
+  useEffect(() => {
+    if (showOptimizerPreviewModal) {
+      setOptimizerPreviewItems(computeAutoOptimizerPreview(optimizerFactorConfig));
+    }
+  }, [
+    showOptimizerPreviewModal,
+    optimizerFactorConfig.rightSizingWeight,
+    optimizerFactorConfig.safetyBufferWeight,
+    optimizerFactorConfig.costEfficiencyWeight,
+    optimizerFactorConfig.readinessWeight,
+    optimizerFactorConfig.minSafetyMarginPct,
+    optimizerFactorConfig.maxGbpLimitRatioPct,
+    optimizerFactorConfig.simulatedWindKnots,
+    optimizerFactorConfig.simulationScope,
+    optimizerFactorConfig.allowAutoTimeShift,
+    optimizerFactorConfig.preferSharedConsolidation
+  ]);
+
+  const handleOpenAutoOptimizer = (openWithConfigExpanded: boolean = true) => {
+    const hasPending = jobs.some(j => j.status === 'Pending Review');
+    const nextConfig: OptimizerFactorConfig = {
+      ...optimizerFactorConfig,
+      simulationScope: hasPending ? optimizerFactorConfig.simulationScope : 'all_unlocked'
+    };
+    setOptimizerFactorConfig(nextConfig);
+    setShowFactorConfigPanel(openWithConfigExpanded);
+    setOptimizerPreviewItems(computeAutoOptimizerPreview(nextConfig));
     setShowOptimizerPreviewModal(true);
   };
 
@@ -806,14 +1065,18 @@ export default function ReviewPlanOptimize({
 
     const updatedJobsList: PlanningJobItem[] = toApply.map(item => {
       const crane = item.recommendedCrane!;
+      const nextStart = item.shiftedSlot ? item.shiftedSlot.start : item.job.startTime;
+      const nextEnd = item.shiftedSlot ? item.shiftedSlot.end : item.job.endTime;
       return {
         ...item.job,
         status: 'Optimized',
+        startTime: nextStart,
+        endTime: nextEnd,
         assignedCraneId: crane.id,
         assignedCraneName: `${crane.name} (${crane.capacityTon}T)`,
         reviewedBy: currentReviewer,
         reviewedAt: new Date().toISOString(),
-        notes: `AI Optimized: Matched with ${crane.name} (${crane.capacityTon}T). Suitability: ${item.score}%.`
+        notes: `AI Optimized [${optimizerFactorConfig.preset.toUpperCase()}]: Matched with ${crane.name} (${crane.capacityTon}T). Score: ${item.score}%, Safety Margin: +${item.safetyMarginPct || 20}%.`
       };
     });
 
@@ -825,13 +1088,14 @@ export default function ReviewPlanOptimize({
         role: 'Rigging Superintendent',
         previousValue: item.job.status,
         newValue: 'Optimized',
-        reason: `Auto-matched with ${item.recommendedCrane?.name} (${item.recommendedCrane?.capacityTon}T)`
+        reason: `Factor-Configured Simulation (${optimizerFactorConfig.preset}, Margin >=${optimizerFactorConfig.minSafetyMarginPct}%): Matched ${item.recommendedCrane?.name} (${item.score}% score)`
       });
       // Synchronize with unified operations store
       updateCraneJob(item.job.id, {
         status: 'Optimized',
         assignedCraneId: item.recommendedCrane?.id,
         assignedCraneName: `${item.recommendedCrane?.name} (${item.recommendedCrane?.capacityTon}T)`,
+        ...(item.shiftedSlot ? { time: `${item.shiftedSlot.start} - ${item.shiftedSlot.end}` } : {}),
         reviewedBy: currentReviewer,
         reviewedAt: new Date().toISOString()
       });
@@ -846,8 +1110,8 @@ export default function ReviewPlanOptimize({
     setShowOptimizerPreviewModal(false);
     showToast(
       isTh
-        ? `วิเคราะห์และจัดสรรเครนให้ ${toApply.length} รายการเรียบร้อยแล้ว!`
-        : `Successfully optimized ${toApply.length} requests!`,
+        ? `วิเคราะห์และจัดสรรเครนตามตัวแปรจำลองให้ ${toApply.length} รายการเรียบร้อยแล้ว!`
+        : `Successfully optimized ${toApply.length} requests using configured simulation factors!`,
       'success'
     );
   };
@@ -1692,6 +1956,79 @@ export default function ReviewPlanOptimize({
       )}
 
       {/* ========================================================================= */}
+      {/* CRANE OPTIMIZATION & COST SAVING MODE SWITCHER BAR                        */}
+      {/* ========================================================================= */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-2.5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+          <button
+            type="button"
+            onClick={() => setViewMode('engineering')}
+            className={`px-3.5 py-2 rounded-lg text-xs font-extrabold transition-all cursor-pointer flex items-center gap-2 ${
+              viewMode === 'engineering'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Gauge size={15} />
+            <span>{isTh ? '1. ตรวจสอบวิศวกรรม & จัดสรรเครน (Engineering Gate)' : '1. Engineering Review & Plan Optimizer'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setViewMode('cost-saving')}
+            className={`px-3.5 py-2 rounded-lg text-xs font-extrabold transition-all cursor-pointer flex items-center gap-2 ${
+              viewMode === 'cost-saving'
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-sm'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <TrendingDown size={15} />
+            <span>{isTh ? '2. แดชบอร์ดลดต้นทุน & ความคุ้มค่าเครน (Optimize & Cost Saving)' : '2. Optimize & Cost Saving Dashboard'}</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+              viewMode === 'cost-saving'
+                ? 'bg-white/20 text-white'
+                : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+            }`}>
+              {isTh ? 'ประหยัดงบ AI' : 'Cost Saving'}
+            </span>
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2 px-2 text-xs">
+          <span className="text-slate-500 dark:text-slate-400 font-medium hidden md:inline">
+            {isTh ? 'สถานะความคุ้มค่า:' : 'Optimization Impact:'}
+          </span>
+          <button
+            type="button"
+            onClick={() => setViewMode(viewMode === 'cost-saving' ? 'engineering' : 'cost-saving')}
+            className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-extrabold flex items-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <Sparkles size={13} />
+            <span>
+              {viewMode === 'cost-saving'
+                ? (isTh ? 'สลับไปหน้าตรวจวิศวกรรมรายใบงาน' : 'Switch to Engineering Gate')
+                : (isTh ? 'ดูวิเคราะห์การประหยัดงบเช่าเครน (THB)' : 'View Cost Saving Analytics (THB)')}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {viewMode === 'cost-saving' ? (
+        <CraneOptimizeCostSavingDashboard
+          jobs={jobs}
+          equipment={equipment}
+          globalPlantFilter={globalPlantFilter}
+          onUpdateJob={onUpdateJob}
+          onBatchUpdateJobs={onBatchUpdateJobs}
+          onSwitchToEngineeringGate={() => setViewMode('engineering')}
+          onInspectJobInEngineeringGate={(job) => {
+            setSelectedJobId(job.id);
+            setViewMode('engineering');
+          }}
+        />
+      ) : (
+        <>
+      {/* ========================================================================= */}
       {/* SECTION A: KPI HEADER (6 DATA-DRIVEN METRIC CARDS & SIMULATION CONTROLS)  */}
       {/* ========================================================================= */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1731,9 +2068,29 @@ export default function ReviewPlanOptimize({
           </button>
 
           <button
-            onClick={handleOpenAutoOptimizer}
+            onClick={() => handleOpenAutoOptimizer(true)}
+            className="px-3.5 py-2 bg-white dark:bg-slate-900 hover:bg-indigo-50/80 dark:hover:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:border-indigo-400 rounded-xl text-xs font-extrabold flex items-center gap-2 shadow-2xs transition-all cursor-pointer"
+            title={isTh ? 'ตั้งค่าค่าน้ำหนักตัวแปรและเกณฑ์ความปลอดภัยสำหรับการจำลอง Auto-Optimizer' : 'Configure weighting factors and safety gates for Auto-Optimizer Simulation'}
+          >
+            <Sliders size={14} className="text-indigo-600 dark:text-indigo-400" />
+            <span>{isTh ? 'ตั้งค่าตัวแปรจำลอง (Factor Config)' : 'Factor Config'}</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-black bg-indigo-100 dark:bg-indigo-900/70 text-indigo-800 dark:text-indigo-200">
+              {optimizerFactorConfig.preset === 'balanced'
+                ? (isTh ? 'สมดุล' : 'Balanced')
+                : optimizerFactorConfig.preset === 'safety_first'
+                  ? (isTh ? 'ปลอดภัยสูงสุด' : 'Safety+')
+                  : optimizerFactorConfig.preset === 'cost_saving'
+                    ? (isTh ? 'ลดต้นทุน' : 'Cost Save')
+                    : optimizerFactorConfig.preset === 'urgent_speed'
+                      ? (isTh ? 'งานด่วน' : 'Urgent')
+                      : (isTh ? 'กำหนดเอง' : 'Custom')}
+            </span>
+          </button>
+
+          <button
+            onClick={() => handleOpenAutoOptimizer(true)}
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition-all active:scale-95 cursor-pointer"
-            title={isTh ? 'จำลองการคำนวณจับคู่เครนอัตโนมัติ (Simulation Mode Only)' : 'Run auto-optimizer simulation'}
+            title={isTh ? 'จำลองการคำนวณจับคู่เครนอัตโนมัติพร้อมปรับแต่งตัวแปร (Auto-Optimizer Simulation)' : 'Run auto-optimizer simulation with configurable factors'}
           >
             <Sparkles size={15} />
             <span>{isTh ? 'จำลองจัดสรรอัตโนมัติ (Simulation)' : 'Auto-Optimize Simulation'}</span>
@@ -3533,111 +3890,715 @@ export default function ReviewPlanOptimize({
       </div>
 
       {/* ========================================================================= */}
-      {/* MODAL 1: AUTO-OPTIMIZER PREVIEW (SIMULATION TABLE BEFORE CONFIRMATION)    */}
+      {/* MODAL 1: AUTO-OPTIMIZER SIMULATION & INTERACTIVE FACTOR CONFIG            */}
       {/* ========================================================================= */}
-      {showOptimizerPreviewModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-2 text-indigo-600">
-                <Sparkles size={20} />
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  {isTh ? 'ผลการจำลองจัดสรรอัตโนมัติ (Optimization Simulation Preview)' : 'Auto-Optimizer Simulation Preview'}
-                </h3>
+      {showOptimizerPreviewModal && (() => {
+        const totalRawWeight = Math.max(
+          1,
+          optimizerFactorConfig.rightSizingWeight +
+            optimizerFactorConfig.safetyBufferWeight +
+            optimizerFactorConfig.costEfficiencyWeight +
+            optimizerFactorConfig.readinessWeight
+        );
+        const normRightSize = Math.round((optimizerFactorConfig.rightSizingWeight / totalRawWeight) * 100);
+        const normSafety = Math.round((optimizerFactorConfig.safetyBufferWeight / totalRawWeight) * 100);
+        const normCost = Math.round((optimizerFactorConfig.costEfficiencyWeight / totalRawWeight) * 100);
+        const normReadiness = Math.max(0, 100 - normRightSize - normSafety - normCost);
+
+        const matchedItems = optimizerPreviewItems.filter(i => i.recommendedCrane && i.safetyResult === 'PASS');
+        const selectedItems = optimizerPreviewItems.filter(i => i.selected && i.recommendedCrane);
+        const avgScore = matchedItems.length > 0
+          ? Math.round(matchedItems.reduce((s, i) => s + i.score, 0) / matchedItems.length)
+          : 0;
+        const totalEstBatchSaving = selectedItems.reduce((s, i) => s + (i.estSavingThb || 0), 0);
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-6xl w-full p-5 sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 max-h-[92vh] flex flex-col animate-in zoom-in-95 duration-200">
+              {/* Modal Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
+                    <Sparkles size={20} />
+                    <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
+                      {isTh
+                        ? 'จำลองจัดสรรเครนอัตโนมัติ & ตั้งค่าตัวแปร (Auto-Optimizer Simulation & Factor Config)'
+                        : 'Auto-Optimizer Simulation & Factor Configuration'}
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-extrabold bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                      Multi-Objective Engine
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {isTh
+                      ? 'ปรับค่าน้ำหนักตัวแปร (Factor Weights) และเกณฑ์วิศวกรรมความปลอดภัยเพื่อจำลองผลลัพธ์การจัดสรรเครนแบบเรียลไทม์ก่อนยืนยัน'
+                      : 'Adjust multi-objective scoring weights, engineering safety thresholds, and scheduling rules to simulate optimal crane matching in real time.'}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowFactorConfigPanel(prev => !prev)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold border flex items-center gap-1.5 transition-all cursor-pointer ${
+                      showFactorConfigPanel
+                        ? 'bg-indigo-50 dark:bg-indigo-950/70 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300'
+                        : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    <Sliders size={14} />
+                    <span>
+                      {showFactorConfigPanel
+                        ? (isTh ? 'ซ่อนแผงตั้งค่าตัวแปร' : 'Hide Factor Config')
+                        : (isTh ? 'เปิดแผงตั้งค่าตัวแปร (Factor Config)' : 'Show Factor Config')}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowOptimizerPreviewModal(false)}
+                    className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
               </div>
-              <button onClick={() => setShowOptimizerPreviewModal(false)} className="text-slate-400 hover:text-slate-600 p-1">
-                <X size={18} />
-              </button>
-            </div>
 
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              {isTh
-                ? 'ระบบได้ทำการประเมิน Load Chart, Safety Factor (>=1.20x) และความพร้อมของรถเครนทั้งหมด ตรวจสอบผลลัพธ์ก่อนยืนยันการจัดสรร'
-                : 'Rule-based simulation evaluated all pending requests against manufacturer load charts and fleet availability.'}
-            </p>
-
-            <div className="flex-1 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-xl">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 text-[11px] uppercase tracking-wider font-semibold border-b border-slate-200 dark:border-slate-800">
-                  <tr>
-                    <th className="p-3 w-10 text-center">{isTh ? 'เลือก' : 'Apply'}</th>
-                    <th className="p-3">{isTh ? 'รหัสงาน' : 'Job ID'}</th>
-                    <th className="p-3">{isTh ? 'น้ำหนัก / รัศมี' : 'Load / Radius'}</th>
-                    <th className="p-3">{isTh ? 'เครนที่ระบบแนะนำ' : 'Matched Crane'}</th>
-                    <th className="p-3">{isTh ? 'คะแนน' : 'Score'}</th>
-                    <th className="p-3">{isTh ? 'เหตุผลการวิเคราะห์' : 'Analysis Rationale'}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {optimizerPreviewItems.map((item, idx) => (
-                    <tr key={idx} className={item.selected ? 'bg-indigo-50/30 dark:bg-indigo-950/10' : 'opacity-60'}>
-                      <td className="p-3 text-center">
-                        <input
-                          type="checkbox"
-                          disabled={!item.recommendedCrane || item.safetyResult !== 'PASS'}
-                          checked={item.selected}
-                          onChange={e => {
-                            const val = e.target.checked;
-                            setOptimizerPreviewItems(prev =>
-                              prev.map((it, i) => (i === idx ? { ...it, selected: val } : it))
-                            );
-                          }}
-                          className="rounded text-indigo-600 focus:ring-indigo-500"
-                        />
-                      </td>
-                      <td className="p-3 font-mono font-bold text-slate-900 dark:text-white">
-                        {item.job.jobNo}
-                      </td>
-                      <td className="p-3 font-mono">
-                        {item.job.loadWeightTon}T / {item.job.requiredRadiusM}m
-                      </td>
-                      <td className="p-3">
-                        {item.recommendedCrane ? (
-                          <span className="font-bold text-slate-800 dark:text-slate-200">
-                            {item.recommendedCrane.name} ({item.recommendedCrane.capacityTon}T)
-                          </span>
-                        ) : (
-                          <span className="text-red-500 font-semibold">{isTh ? 'ไม่มีเครนที่ผ่านเกณฑ์' : 'No eligible crane'}</span>
-                        )}
-                      </td>
-                      <td className="p-3">
-                        <span className={`font-mono font-bold ${item.score >= 85 ? 'text-emerald-600' : item.score > 0 ? 'text-blue-600' : 'text-slate-400'}`}>
-                          {item.score}%
+              {/* Scrollable Body */}
+              <div className="flex-1 overflow-y-auto space-y-4 pr-1 custom-scrollbar">
+                {/* =============================================================== */}
+                {/* COLLAPSIBLE FACTOR CONFIGURATION PANEL                          */}
+                {/* =============================================================== */}
+                {showFactorConfigPanel && (
+                  <div className="p-4 rounded-2xl bg-slate-50/90 dark:bg-slate-800/50 border border-indigo-200/80 dark:border-indigo-900/60 space-y-4">
+                    {/* Preset Strategy Selector Bar */}
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+                      <div className="flex items-center gap-2">
+                        <Sliders size={15} className="text-indigo-600 dark:text-indigo-400" />
+                        <span className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                          {isTh ? '1. เลือกโหมดกลยุทธ์สำเร็จรูป (Optimization Strategy Presets):' : '1. Optimization Strategy Presets:'}
                         </span>
-                      </td>
-                      <td className="p-3 text-slate-600 dark:text-slate-400 text-[11px]">
-                        {item.reason}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                      </div>
 
-            <div className="flex items-center justify-between pt-2">
-              <span className="text-xs text-slate-500">
-                {isTh ? `เลือก ${optimizerPreviewItems.filter(i => i.selected).length} รายการ` : `Selected ${optimizerPreviewItems.filter(i => i.selected).length} items`}
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowOptimizerPreviewModal(false)}
-                  className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
-                >
-                  {isTh ? 'ยกเลิก' : 'Cancel'}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmAutoOptimization}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
-                >
-                  {isTh ? 'ยืนยันการจัดสรรจำลอง' : 'Confirm Optimization'}
-                </button>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {[
+                          {
+                            id: 'balanced' as const,
+                            labelTh: 'สมดุลวิศวกรรม & ต้นทุน (Balanced)',
+                            labelEn: 'Balanced Engineering',
+                            desc: '30/25/25/20 · Margin ≥20%'
+                          },
+                          {
+                            id: 'safety_first' as const,
+                            labelTh: 'เน้นความปลอดภัยสูงสุด (Safety First)',
+                            labelEn: 'Safety First (Strict)',
+                            desc: 'Margin ≥30% · GBP ≤85%'
+                          },
+                          {
+                            id: 'cost_saving' as const,
+                            labelTh: 'เน้นลดต้นทุนสูงสุด (Max Cost Saving)',
+                            labelEn: 'Max Cost Saving',
+                            desc: 'Right-Size 40% + Shared Fleet'
+                          },
+                          {
+                            id: 'urgent_speed' as const,
+                            labelTh: 'เน้นงานด่วน Turnaround (Speed & Readiness)',
+                            labelEn: 'Turnaround Speed',
+                            desc: 'Readiness 45% + Auto-Slot'
+                          }
+                        ].map(p => {
+                          const active = optimizerFactorConfig.preset === p.id;
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => applyFactorPreset(p.id)}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                                active
+                                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                  : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-400'
+                              }`}
+                            >
+                              <span>{isTh ? p.labelTh : p.labelEn}</span>
+                              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded ${active ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
+                                {p.desc}
+                              </span>
+                            </button>
+                          );
+                        })}
+
+                        <button
+                          type="button"
+                          onClick={() => applyFactorPreset('balanced')}
+                          className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 flex items-center gap-1 cursor-pointer"
+                          title={isTh ? 'คืนค่าเริ่มต้น' : 'Reset to default factors'}
+                        >
+                          <RotateCcw size={12} />
+                          <span>{isTh ? 'รีเซ็ตค่าเริ่มต้น' : 'Reset'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Two-Column Factor Sliders: Left = Scoring Weights, Right = Safety & Constraint Thresholds */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                      {/* Left 6 Cols: Multi-Objective Scoring Weights */}
+                      <div className="lg:col-span-6 bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                            {isTh ? '2. ค่าน้ำหนักการให้คะแนน (Scoring Weights 100%)' : '2. Multi-Objective Scoring Weights (Normalized 100%)'}
+                          </span>
+                          <span className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                            {normRightSize}% + {normSafety}% + {normCost}% + {normReadiness}% = 100%
+                          </span>
+                        </div>
+
+                        {/* Weight Distribution Bar */}
+                        <div className="h-2.5 w-full rounded-full overflow-hidden flex bg-slate-100 dark:bg-slate-800">
+                          <div style={{ width: `${normRightSize}%` }} className="bg-indigo-500 transition-all" title={`Right-Sizing: ${normRightSize}%`} />
+                          <div style={{ width: `${normSafety}%` }} className="bg-emerald-500 transition-all" title={`Safety Buffer: ${normSafety}%`} />
+                          <div style={{ width: `${normCost}%` }} className="bg-teal-500 transition-all" title={`Cost Efficiency: ${normCost}%`} />
+                          <div style={{ width: `${normReadiness}%` }} className="bg-amber-500 transition-all" title={`Readiness & Fuel: ${normReadiness}%`} />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                          {/* Factor 1: Right-Sizing */}
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                                {isTh ? 'ความเหมาะสมขนาดเครน (Right-Sizing)' : 'Capacity Right-Sizing'}
+                              </span>
+                              <span className="font-mono font-black text-indigo-600 dark:text-indigo-400">{normRightSize}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={5}
+                              max={70}
+                              step={5}
+                              value={optimizerFactorConfig.rightSizingWeight}
+                              onChange={e =>
+                                setOptimizerFactorConfig(prev => ({
+                                  ...prev,
+                                  preset: 'custom',
+                                  rightSizingWeight: Number(e.target.value)
+                                }))
+                              }
+                              className="w-full accent-indigo-600 cursor-pointer"
+                            />
+                            <p className="text-[10px] text-slate-400">
+                              {isTh ? 'ลดการใช้เครนใหญ่เกินความจำเป็น (Ideal 1.25x–2.0x)' : 'Penalizes oversized cranes (ideal 1.25x–2.0x load)'}
+                            </p>
+                          </div>
+
+                          {/* Factor 2: Safety Buffer */}
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                {isTh ? 'ส่วนเผื่อความปลอดภัย (Safety Buffer)' : 'Safety Margin Headroom'}
+                              </span>
+                              <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">{normSafety}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={5}
+                              max={70}
+                              step={5}
+                              value={optimizerFactorConfig.safetyBufferWeight}
+                              onChange={e =>
+                                setOptimizerFactorConfig(prev => ({
+                                  ...prev,
+                                  preset: 'custom',
+                                  safetyBufferWeight: Number(e.target.value)
+                                }))
+                              }
+                              className="w-full accent-emerald-600 cursor-pointer"
+                            />
+                            <p className="text-[10px] text-slate-400">
+                              {isTh ? 'ให้น้ำหนักส่วนเผื่อ Load Chart และแรงกดดิน GBP ต่ำ' : 'Rewards higher Load Chart & soil bearing headroom'}
+                            </p>
+                          </div>
+
+                          {/* Factor 3: Cost Efficiency */}
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-teal-500" />
+                                {isTh ? 'ความคุ้มค่าค่าเช่า (Cost Economy)' : 'Rental & Cost Economy'}
+                              </span>
+                              <span className="font-mono font-black text-teal-600 dark:text-teal-400">{normCost}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={5}
+                              max={70}
+                              step={5}
+                              value={optimizerFactorConfig.costEfficiencyWeight}
+                              onChange={e =>
+                                setOptimizerFactorConfig(prev => ({
+                                  ...prev,
+                                  preset: 'custom',
+                                  costEfficiencyWeight: Number(e.target.value)
+                                }))
+                              }
+                              className="w-full accent-teal-600 cursor-pointer"
+                            />
+                            <p className="text-[10px] text-slate-400">
+                              {isTh ? 'เน้นเครนที่มีอัตราค่าเช่ารายชั่วโมงประหยัดและอยู่โซนเดียวกัน' : 'Prioritizes lower hourly rate & co-located fleet'}
+                            </p>
+                          </div>
+
+                          {/* Factor 4: Fleet Readiness & Fuel */}
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-amber-500" />
+                                {isTh ? 'ความพร้อมใช้งาน & เชื้อเพลิง (Readiness)' : 'Readiness & Fuel Level'}
+                              </span>
+                              <span className="font-mono font-black text-amber-600 dark:text-amber-400">{normReadiness}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={5}
+                              max={70}
+                              step={5}
+                              value={optimizerFactorConfig.readinessWeight}
+                              onChange={e =>
+                                setOptimizerFactorConfig(prev => ({
+                                  ...prev,
+                                  preset: 'custom',
+                                  readinessWeight: Number(e.target.value)
+                                }))
+                              }
+                              className="w-full accent-amber-600 cursor-pointer"
+                            />
+                            <p className="text-[10px] text-slate-400">
+                              {isTh ? 'เน้นเครนสถานะ Available ทันที น้ำมัน ≥80% และความพร้อมสูงสุด' : 'Prioritizes immediate availability, fuel ≥80% & efficiency'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right 6 Cols: Hard Engineering Thresholds & Simulation Rules */}
+                      <div className="lg:col-span-6 bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                            {isTh ? '3. เกณฑ์วิศวกรรมและเงื่อนไขการจำลอง (Safety & Constraint Gates)' : '3. Engineering Thresholds & Simulation Rules'}
+                          </span>
+                          <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                             Hard Gate Constraints
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                          {/* Threshold 1: Min Safety Margin % */}
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-700 dark:text-slate-200">
+                                {isTh ? 'Safety Margin ขั้นต่ำ' : 'Min Safety Margin'}
+                              </span>
+                              <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
+                                ≥{optimizerFactorConfig.minSafetyMarginPct}%
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={15}
+                              max={40}
+                              step={1}
+                              value={optimizerFactorConfig.minSafetyMarginPct}
+                              onChange={e =>
+                                setOptimizerFactorConfig(prev => ({
+                                  ...prev,
+                                  preset: 'custom',
+                                  minSafetyMarginPct: Number(e.target.value)
+                                }))
+                              }
+                              className="w-full accent-emerald-600 cursor-pointer"
+                            />
+                            <p className="text-[10px] text-slate-400">
+                              {isTh ? 'มาตรฐานปกติ ≥20% (งานวิกฤต ≥30%)' : 'Standard ≥20% (Critical lift ≥30%)'}
+                            </p>
+                          </div>
+
+                          {/* Threshold 2: Max GBP Ratio % */}
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-700 dark:text-slate-200">
+                                {isTh ? 'เพดานแรงกดดิน GBP' : 'Max Soil GBP Ratio'}
+                              </span>
+                              <span className="font-mono font-black text-blue-600 dark:text-blue-400">
+                                ≤{optimizerFactorConfig.maxGbpLimitRatioPct}%
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={70}
+                              max={100}
+                              step={5}
+                              value={optimizerFactorConfig.maxGbpLimitRatioPct}
+                              onChange={e =>
+                                setOptimizerFactorConfig(prev => ({
+                                  ...prev,
+                                  preset: 'custom',
+                                  maxGbpLimitRatioPct: Number(e.target.value)
+                                }))
+                              }
+                              className="w-full accent-blue-600 cursor-pointer"
+                            />
+                            <p className="text-[10px] text-slate-400">
+                              {isTh ? '% เทียบค่าดินรับได้ (220/260 kPa)' : '% of allowable site soil limit'}
+                            </p>
+                          </div>
+
+                          {/* Threshold 3: Simulated Wind Speed */}
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-700 dark:text-slate-200">
+                                {isTh ? 'ความเร็วลมจำลอง' : 'Forecast Wind'}
+                              </span>
+                              <span className={`font-mono font-black ${optimizerFactorConfig.simulatedWindKnots >= 20 ? 'text-amber-600' : 'text-cyan-600 dark:text-cyan-400'}`}>
+                                {optimizerFactorConfig.simulatedWindKnots} kts
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={8}
+                              max={28}
+                              step={1}
+                              value={optimizerFactorConfig.simulatedWindKnots}
+                              onChange={e =>
+                                setOptimizerFactorConfig(prev => ({
+                                  ...prev,
+                                  preset: 'custom',
+                                  simulatedWindKnots: Number(e.target.value)
+                                }))
+                              }
+                              className="w-full accent-cyan-600 cursor-pointer"
+                            />
+                            <p className="text-[10px] text-slate-400">
+                              {isTh ? 'ตัดเครนบูมยาวที่ทนลมได้ต่ำกว่าเกณฑ์' : 'Filters out cranes below wind limit'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Operational Toggles & Scope */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                          <label className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 flex items-start gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={optimizerFactorConfig.allowAutoTimeShift}
+                              onChange={e =>
+                                setOptimizerFactorConfig(prev => ({
+                                  ...prev,
+                                  preset: 'custom',
+                                  allowAutoTimeShift: e.target.checked
+                                }))
+                              }
+                              className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <div className="text-[11px] leading-tight">
+                              <span className="font-bold text-slate-800 dark:text-slate-200 block">
+                                {isTh ? 'เลื่อนเวลาอัตโนมัติเมื่อคิวชน' : 'Auto-Shift Slot on Clash'}
+                              </span>
+                              <span className="text-[10px] text-slate-500">
+                                {isTh ? 'หาช่วงเวลาว่างในวันเดียวกันให้อัตโนมัติ' : 'Finds nearest free slot on same day'}
+                              </span>
+                            </div>
+                          </label>
+
+                          <label className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 flex items-start gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={optimizerFactorConfig.preferSharedConsolidation}
+                              onChange={e =>
+                                setOptimizerFactorConfig(prev => ({
+                                  ...prev,
+                                  preset: 'custom',
+                                  preferSharedConsolidation: e.target.checked
+                                }))
+                              }
+                              className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <div className="text-[11px] leading-tight">
+                              <span className="font-bold text-slate-800 dark:text-slate-200 block">
+                                {isTh ? 'โบนัสใช้เครนร่วมในโรงงานเดียวกัน' : 'Shared Mobilization Bonus'}
+                              </span>
+                              <span className="text-[10px] text-slate-500">
+                                {isTh ? 'เพิ่มคะแนนเมื่อใช้เครนคันเดียวหลายงาน' : 'Boosts cranes already active on site'}
+                              </span>
+                            </div>
+                          </label>
+
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 space-y-1">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase block">
+                              {isTh ? 'ขอบเขตใบงานที่นำมาจำลอง:' : 'Simulation Job Scope:'}
+                            </span>
+                            <select
+                              value={optimizerFactorConfig.simulationScope}
+                              onChange={e =>
+                                setOptimizerFactorConfig(prev => ({
+                                  ...prev,
+                                  simulationScope: e.target.value as 'pending_only' | 'all_unlocked'
+                                }))
+                              }
+                              className="w-full px-2 py-1 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-800 dark:text-slate-200"
+                            >
+                              <option value="all_unlocked">
+                                {isTh ? 'รอตรวจ + จับคู่แล้วที่ยังไม่ล็อกคิว' : 'Pending + Unlocked Optimized'}
+                              </option>
+                              <option value="pending_only">
+                                {isTh ? 'เฉพาะสถานะ Pending Review เท่านั้น' : 'Pending Review Only'}
+                              </option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* =============================================================== */}
+                {/* 4 LIVE SIMULATION SUMMARY KPI CARDS                             */}
+                {/* =============================================================== */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/80 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 uppercase tracking-wider block">
+                        {isTh ? 'จับคู่ผ่านเกณฑ์สำเร็จ' : 'Eligible Matched Jobs'}
+                      </span>
+                      <span className="text-lg font-black text-indigo-900 dark:text-white font-mono">
+                        {matchedItems.length} / {optimizerPreviewItems.length}
+                      </span>
+                    </div>
+                    <CheckCircle size={18} className="text-indigo-600 dark:text-indigo-400" />
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/80 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider block">
+                        {isTh ? 'คะแนนความเหมาะสมเฉลี่ย' : 'Avg Weighted Score'}
+                      </span>
+                      <span className="text-lg font-black text-emerald-700 dark:text-emerald-300 font-mono">
+                        {avgScore}%
+                      </span>
+                    </div>
+                    <Gauge size={18} className="text-emerald-600 dark:text-emerald-400" />
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                        {isTh ? 'เกณฑ์ความปลอดภัยที่ใช้' : 'Active Safety Gate'}
+                      </span>
+                      <span className="text-xs font-black text-slate-800 dark:text-slate-200 font-mono">
+                        Margin ≥{optimizerFactorConfig.minSafetyMarginPct}% · Wind {optimizerFactorConfig.simulatedWindKnots}kts
+                      </span>
+                    </div>
+                    <ShieldCheck size={18} className="text-slate-600 dark:text-slate-400" />
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-teal-50/70 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-800/80 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-teal-700 dark:text-teal-300 uppercase tracking-wider block">
+                        {isTh ? 'ประหยัดงบประมาณรวม (จำลอง)' : 'Est. Batch Cost Saving'}
+                      </span>
+                      <span className="text-lg font-black text-teal-700 dark:text-teal-300 font-mono">
+                        ฿{totalEstBatchSaving.toLocaleString()}
+                      </span>
+                    </div>
+                    <TrendingDown size={18} className="text-teal-600 dark:text-teal-400" />
+                  </div>
+                </div>
+
+                {/* =============================================================== */}
+                {/* SIMULATION RESULTS TABLE                                        */}
+                {/* =============================================================== */}
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 text-[11px] uppercase tracking-wider font-semibold border-b border-slate-200 dark:border-slate-800">
+                      <tr>
+                        <th className="p-3 w-10 text-center">{isTh ? 'เลือก' : 'Apply'}</th>
+                        <th className="p-3">{isTh ? 'รหัสงาน / โรงงาน' : 'Job ID / Plant'}</th>
+                        <th className="p-3">{isTh ? 'น้ำหนัก / รัศมี' : 'Load / Radius'}</th>
+                        <th className="p-3">{isTh ? 'เครนที่ระบบแนะนำ (ปรับเลือกได้)' : 'Matched Crane (Editable)'}</th>
+                        <th className="p-3">{isTh ? 'คะแนนรวม & สัดส่วน' : 'Weighted Score'}</th>
+                        <th className="p-3">{isTh ? 'ประหยัดงบ' : 'Est. Saving'}</th>
+                        <th className="p-3">{isTh ? 'เหตุผลการวิเคราะห์ตามตัวแปร' : 'Factor Analysis Rationale'}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {optimizerPreviewItems.map((item, idx) => {
+                        const eligibleCranesForRow = equipment.filter(
+                          c => getSuitabilityScore(c, item.job, optimizerFactorConfig).eligible
+                        );
+                        return (
+                          <tr
+                            key={item.job.id}
+                            className={
+                              item.selected
+                                ? 'bg-indigo-50/30 dark:bg-indigo-950/15 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/25'
+                                : 'opacity-65 bg-slate-50/30 dark:bg-slate-900/40'
+                            }
+                          >
+                            <td className="p-3 text-center">
+                              <input
+                                type="checkbox"
+                                disabled={!item.recommendedCrane || item.safetyResult !== 'PASS'}
+                                checked={item.selected}
+                                onChange={e => {
+                                  const val = e.target.checked;
+                                  setOptimizerPreviewItems(prev =>
+                                    prev.map((it, i) => (i === idx ? { ...it, selected: val } : it))
+                                  );
+                                }}
+                                className="rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                              />
+                            </td>
+                            <td className="p-3">
+                              <div className="font-mono font-bold text-slate-900 dark:text-white">{item.job.jobNo}</div>
+                              <div className="text-[10px] text-slate-500">
+                                {item.job.plant} · {item.job.date} ({item.shiftedSlot ? `${item.shiftedSlot.start}-${item.shiftedSlot.end}` : `${item.job.startTime}-${item.job.endTime}`})
+                              </div>
+                            </td>
+                            <td className="p-3 font-mono">
+                              <span className="font-bold text-slate-800 dark:text-slate-200">{item.job.loadWeightTon}T</span> / {item.job.requiredRadiusM}m
+                              <div className="text-[10px] text-slate-400">{item.job.priority}</div>
+                            </td>
+                            <td className="p-3">
+                              {item.recommendedCrane ? (
+                                <div className="space-y-1">
+                                  <select
+                                    value={item.recommendedCrane.id}
+                                    onChange={e => {
+                                      const newCrane = equipment.find(c => c.id === e.target.value);
+                                      if (!newCrane) return;
+                                      const newSuit = getSuitabilityScore(newCrane, item.job, optimizerFactorConfig);
+                                      setOptimizerPreviewItems(prev =>
+                                        prev.map((it, i) =>
+                                          i === idx
+                                            ? {
+                                                ...it,
+                                                recommendedCrane: newCrane,
+                                                score: newSuit.score,
+                                                safetyMarginPct: newSuit.validation.safetyMarginPercent,
+                                                gbpRatioPct: newSuit.gbpRatioPct,
+                                                factorBreakdown: newSuit.factorBreakdown,
+                                                selected: true
+                                              }
+                                            : it
+                                        )
+                                      );
+                                    }}
+                                    className="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white"
+                                  >
+                                    {eligibleCranesForRow.map(c => {
+                                      const sc = getSuitabilityScore(c, item.job, optimizerFactorConfig);
+                                      return (
+                                        <option key={c.id} value={c.id}>
+                                          {c.name} ({c.capacityTon}T) — {sc.score}%
+                                        </option>
+                                      );
+                                    })}
+                                  </select>
+                                  {item.shiftedSlot && (
+                                    <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
+                                      {isTh ? `เลื่อนเวลา: ${item.shiftedSlot.start}-${item.shiftedSlot.end}` : `Auto-Slot: ${item.shiftedSlot.start}-${item.shiftedSlot.end}`}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-red-500 font-semibold">
+                                  {isTh ? 'ไม่ผ่านเกณฑ์ที่ตั้งไว้' : 'No eligible crane'}
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-3">
+                              <div className="flex items-center gap-1.5">
+                                <span
+                                  className={`font-mono text-sm font-black ${
+                                    item.score >= 85
+                                      ? 'text-emerald-600 dark:text-emerald-400'
+                                      : item.score > 0
+                                        ? 'text-indigo-600 dark:text-indigo-400'
+                                        : 'text-slate-400'
+                                  }`}
+                                >
+                                  {item.score}%
+                                </span>
+                                {item.factorBreakdown && item.score > 0 && (
+                                  <span className="text-[10px] font-mono text-slate-400">
+                                    ({item.factorBreakdown.rightSizingPts}+{item.factorBreakdown.safetyPts}+{item.factorBreakdown.costPts}+{item.factorBreakdown.readinessPts})
+                                  </span>
+                                )}
+                              </div>
+                              {item.factorBreakdown && item.score > 0 && (
+                                <div className="w-24 h-1.5 rounded-full overflow-hidden flex bg-slate-200 dark:bg-slate-700 mt-1">
+                                  <div style={{ width: `${item.factorBreakdown.rightSizingPts}%` }} className="bg-indigo-500" />
+                                  <div style={{ width: `${item.factorBreakdown.safetyPts}%` }} className="bg-emerald-500" />
+                                  <div style={{ width: `${item.factorBreakdown.costPts}%` }} className="bg-teal-500" />
+                                  <div style={{ width: `${item.factorBreakdown.readinessPts}%` }} className="bg-amber-500" />
+                                </div>
+                              )}
+                            </td>
+                            <td className="p-3 font-mono font-bold text-teal-600 dark:text-teal-400">
+                              {item.estSavingThb && item.estSavingThb > 0 ? `฿${item.estSavingThb.toLocaleString()}` : '—'}
+                            </td>
+                            <td className="p-3 text-slate-600 dark:text-slate-400 text-[11px] max-w-xs">
+                              {item.reason}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-3 text-xs text-slate-500">
+                  <span>
+                    {isTh
+                      ? `เลือกยืนยัน ${selectedItems.length} จาก ${optimizerPreviewItems.length} รายการ`
+                      : `Selected ${selectedItems.length} of ${optimizerPreviewItems.length} items`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setOptimizerPreviewItems(computeAutoOptimizerPreview(optimizerFactorConfig))}
+                    className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <RefreshCw size={12} />
+                    <span>{isTh ? 'คำนวณจำลองใหม่ (Re-Run)' : 'Re-Run Simulation'}</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowOptimizerPreviewModal(false)}
+                    className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                  >
+                    {isTh ? 'ยกเลิก' : 'Cancel'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedItems.length === 0}
+                    onClick={handleConfirmAutoOptimization}
+                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer flex items-center gap-2"
+                  >
+                    <Sparkles size={14} />
+                    <span>
+                      {isTh
+                        ? `ยืนยันผลจัดสรรจำลอง (${selectedItems.length} งาน)`
+                        : `Apply Simulation (${selectedItems.length} Jobs)`}
+                    </span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ========================================================================= */}
       {/* MODAL 2: ASSIGN CONFIRMATION MODAL                                        */}
@@ -4883,6 +5844,9 @@ export default function ReviewPlanOptimize({
           </div>
         );
       })()}
+        </>
+      )}
     </div>
   );
 }
+

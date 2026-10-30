@@ -29,6 +29,7 @@ import {
 } from '../../data/scaffoldingSFData';
 import essoPlotPlanBg from '../../assets/esso_sriracha_master_plotplan.jpg';
 import { format, parseISO, addDays, differenceInDays } from 'date-fns';
+import ScaffoldingSF02CalendarScheduleView from './ScaffoldingSF02CalendarScheduleView';
 
 const formatThaiDisplayDate = (d?: string) => {
   if (!d) return '-';
@@ -66,11 +67,13 @@ const getScaffoldTypeFullLabel = (type?: string) => {
 interface ScaffoldingSF02RequestsListProps {
   onNavigateToCreate: () => void;
   globalPlantFilter?: 'All' | 'Phra Khanong' | 'Sriracha';
+  initialViewMode?: 'table' | 'plot-plan' | 'calendar';
 }
 
 export default function ScaffoldingSF02RequestsList({ 
   onNavigateToCreate,
-  globalPlantFilter = 'All'
+  globalPlantFilter = 'All',
+  initialViewMode = 'table'
 }: ScaffoldingSF02RequestsListProps) {
   const { language } = useLanguage();
   const isTh = language === 'th';
@@ -86,8 +89,8 @@ export default function ScaffoldingSF02RequestsList({
     return unsub;
   }, []);
 
-  // View Switcher: Table List View vs Plot Plan View
-  const [viewMode, setViewMode] = useState<'table' | 'plot-plan'>('table');
+  // View Switcher: Table List View vs Plot Plan View vs Calendar Schedule View
+  const [viewMode, setViewMode] = useState<'table' | 'plot-plan' | 'calendar'>(initialViewMode);
   const [gateIsDark, setGlobalThemeGate] = useThemeGate();
   const [blueprintTheme, setBlueprintTheme] = useState<'dark' | 'paper'>(() => gateIsDark ? 'dark' : 'paper');
   useEffect(() => {
@@ -514,7 +517,7 @@ export default function ScaffoldingSF02RequestsList({
           </button>
         </div>
 
-        {/* View Switcher: Table List vs Plot Plan */}
+        {/* View Switcher: Table List vs Plot Plan vs Calendar Schedule */}
         <div className="flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
           <button
             type="button"
@@ -539,6 +542,18 @@ export default function ScaffoldingSF02RequestsList({
           >
             <MapPin size={14} />
             <span>{isTh ? 'แผนผังโรงงาน (Plot Plan)' : 'Plot Plan View'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('calendar')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+              viewMode === 'calendar'
+                ? 'bg-white dark:bg-slate-700 text-cyan-700 dark:text-cyan-400 shadow-xs font-black'
+                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Calendar size={14} />
+            <span>{isTh ? 'ปฏิทินแผนงาน (Calendar Schedule)' : 'Calendar Schedule'}</span>
           </button>
         </div>
       </div>
@@ -1272,6 +1287,31 @@ export default function ScaffoldingSF02RequestsList({
             </div>
           </div>
         </div>
+      )}
+
+      {/* =========================================================================
+          3C. CALENDAR SCHEDULE VIEW (Monthly Grid, Lifecycle Gantt & Schedule Ledger)
+         ========================================================================= */}
+      {viewMode === 'calendar' && (
+        <ScaffoldingSF02CalendarScheduleView
+          jobs={filteredJobs}
+          isTh={isTh}
+          onOpenEstimate={(job) => setSelectedJobForEstimate(job)}
+          onOpenHireControl={(job) => setSelectedJobForHireControl(job)}
+          onOpenDetails={(job) => setSelectedJobForDetails(job)}
+          onOpenApprove={(job) => {
+            setJobToApprove(job);
+            setApproveRemarks('');
+          }}
+          onOpenReject={(job) => {
+            setJobToReject(job);
+            setRejectRemarks('');
+          }}
+          onLocateOnPlotPlan={(job) => {
+            setViewMode('plot-plan');
+            setHoveredJob(job);
+          }}
+        />
       )}
 
       {/* =========================================================================

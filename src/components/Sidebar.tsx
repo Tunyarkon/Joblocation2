@@ -62,6 +62,7 @@ export default function Sidebar({
     }
     if (
       activeView === 'user-config' || 
+      activeView === 'job-location-settings' || 
       activeView === 'master' || 
       activeView === 'functional-location' || 
       activeView === 'turnover-activity-log' || 
@@ -688,21 +689,6 @@ export default function Sidebar({
                     <span className={`w-2 h-2 rounded-full shrink-0 ${isDarkMode ? 'bg-emerald-400 shadow-xs shadow-emerald-400' : 'bg-emerald-600'}`} />
                   )}
                 </button>
-
-                {/* Plant & Roles Settings */}
-                <button
-                  type="button"
-                  onClick={() => handleItemClick('job-location-settings')}
-                  className={getSubMenuItemClasses(activeView === 'job-location-settings', 'emerald')}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Sliders size={14} className={`shrink-0 transition-colors ${activeView === 'job-location-settings' ? (isDarkMode ? 'text-emerald-300' : 'text-emerald-600') : 'text-slate-400'}`} />
-                    <span className="truncate">{isTh ? 'ตั้งค่าโรงงาน & สิทธิ์บทบาท' : 'Plant & Role Settings'}</span>
-                  </div>
-                  {activeView === 'job-location-settings' && (
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${isDarkMode ? 'bg-emerald-400 shadow-xs shadow-emerald-400' : 'bg-emerald-600'}`} />
-                  )}
-                </button>
               </div>
             )}
           </div>
@@ -764,13 +750,13 @@ export default function Sidebar({
                 <button
                   type="button"
                   onClick={() => handleItemClick('user-config')}
-                  className={getSubMenuItemClasses(activeView === 'user-config', 'indigo')}
+                  className={getSubMenuItemClasses(activeView === 'user-config' || activeView === 'job-location-settings', 'indigo')}
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <Users size={14} className={`shrink-0 transition-colors ${activeView === 'user-config' ? (isDarkMode ? 'text-indigo-300' : 'text-indigo-600') : 'text-slate-400'}`} />
+                    <Users size={14} className={`shrink-0 transition-colors ${activeView === 'user-config' || activeView === 'job-location-settings' ? (isDarkMode ? 'text-indigo-300' : 'text-indigo-600') : 'text-slate-400'}`} />
                     <span className="truncate">{isTh ? 'การจัดการผู้ใช้งาน' : 'User Configuration'}</span>
                   </div>
-                  {activeView === 'user-config' && (
+                  {(activeView === 'user-config' || activeView === 'job-location-settings') && (
                     <span className={`w-2 h-2 rounded-full shrink-0 ${isDarkMode ? 'bg-indigo-400 shadow-xs shadow-indigo-400' : 'bg-indigo-600'}`} />
                   )}
                 </button>

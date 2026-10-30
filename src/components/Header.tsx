@@ -31,7 +31,7 @@ export default function Header({
     if (activeView === 'executive-dashboard' || activeView === 'job-location-dashboard' || activeView === 'executive-critical-path' || activeView === 'executive-unit-funnel' || activeView === 'planning-dashboard' || activeView === 'scaffold-planning-dashboard') {
       return isTh ? 'ผู้บริหารระดับสูง (Executive)' : 'Executive Suite';
     }
-    if (activeView === 'user-config' || activeView === 'functional-location' || activeView === 'master' || activeView === 'turnover-activity-log' || activeView === 'system-activity-log') {
+    if (activeView === 'user-config' || activeView === 'job-location-settings' || activeView === 'functional-location' || activeView === 'master' || activeView === 'turnover-activity-log' || activeView === 'system-activity-log') {
       return isTh ? 'ตั้งค่าระบบ (Settings)' : 'Setting and Config';
     }
     if (activeView.startsWith('turnover-') || activeView.startsWith('job-location')) {
@@ -40,7 +40,7 @@ export default function Header({
     if (activeView.startsWith('scaffold-')) {
       return isTh ? 'ระบบจัดการนั่งร้าน' : 'Scaffolding Management';
     }
-    if (['list', 'optimize', 'plan', 'create', 'calendar', 'job-list'].includes(activeView)) {
+    if (['list', 'optimize', 'crane-cost-dashboard', 'crane-master', 'plan', 'create', 'calendar', 'job-list'].includes(activeView)) {
       return isTh ? 'งานเครน (Crane Job)' : 'Crane Job';
     }
     return isTh ? 'ส่งมอบระบบ (Turnover S/D & T/A)' : 'Turnover S/D & T/A';
@@ -51,6 +51,7 @@ export default function Header({
     if (activeView === 'executive-critical-path') return isTh ? 'เส้นทางวิกฤต & Punch List' : 'Critical Path & Punch List';
     if (activeView === 'executive-unit-funnel') return isTh ? 'ความพร้อมแยกตามหน่วยผลิต' : 'Unit Readiness Funnel';
     if (activeView === 'job-location-dashboard' || activeView === 'to-dashboard' || activeView === 'job-location-dashboard-v2' || activeView === 'to-dashboard-v2') return 'T/O Dashboard';
+    if (activeView === 'turnover-cp-closing') return 'CP Closing Dashboard';
     if (activeView === 'executive-dashboard') return isTh ? 'ภาพรวมการส่งมอบระบบ (Turnover Overview)' : 'Turnover Overview';
     if (activeView === 'planning-dashboard') return isTh ? 'วางแผนเครื่องจักร & ผังมาร์คกิ้ง' : 'Equipment Planning & Marking';
     if (activeView === 'scaffold-dashboard') return isTh ? 'แดชบอร์ดภาพรวมนั่งร้าน' : 'Scaffolding Dashboard';
@@ -65,6 +66,8 @@ export default function Header({
     if (activeView === 'turnover-coordinator') return isTh ? 'ประสานงานส่งมอบระบบ' : 'Turnover Coordinator';
     if (activeView === 'turnover-inspection') return isTh ? 'ตรวจรับรองและอนุมัติงาน' : 'Field Inspection & Sign';
     if (activeView === 'list' || activeView === 'scaffold-list') return isTh ? 'ทะเบียนงานเครน' : 'Job List';
+    if (activeView === 'crane-master') return isTh ? 'ทะเบียนเครน (Crane Master)' : 'Crane Master / Fleet';
+    if (activeView === 'crane-cost-dashboard') return isTh ? 'แดชบอร์ดวิเคราะห์ลดต้นทุนเครน (Optimize & Cost Saving)' : 'Optimize & Cost Saving Dashboard';
     if (activeView === 'optimize' || activeView === 'scaffold-optimize') return isTh ? 'ตรวจสอบและจัดสรรเครื่องจักร' : 'Review Plan & Optimize';
     if (activeView === 'planning-dashboard' || activeView === 'scaffold-planning-dashboard') return isTh ? 'แดชบอร์ดการวางแผนและมาร์กจุด' : 'Planning Dashboard & Marking';
     if (activeView === 'plan' || activeView === 'scaffold-plan') return isTh ? 'แผนผังพื้นที่ปฏิบัติการ (Plot Plan)' : 'Plot Plan View';

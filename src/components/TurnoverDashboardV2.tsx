@@ -6,11 +6,12 @@ import {
   AlertCircle, ChevronUp, ExternalLink, Sparkles,
   Layers, Filter, RotateCcw, PenTool, Eye,
   Building2, Hash, FileCheck, CheckSquare, Wrench,
-  SlidersHorizontal, Printer
+  SlidersHorizontal, Printer, BarChart3
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { usePlantTurnShared, JobRecord, PunchItem, SignatureRecord } from '../context/PlantTurnSharedContext';
 import { isPunchItemOpen, getAcceptanceStatus } from '../utils/turnoverRules';
+import TurnoverCpClosingDashboard from './TurnoverCpClosingDashboard';
 
 // =========================================================================
 // GATE RULES (shared with the Turnover Workspace via utils/turnoverRules)
@@ -93,10 +94,21 @@ interface TurnoverDashboardV2Props {
   onNavigateToWorkspace?: (jobId?: string, tab?: 'detail' | 'turnover', subTab?: 'sign' | 'punchlist') => void;
   /** Plant selected in the top header bar; the dashboard follows it. */
   globalPlantFilter?: 'All' | 'Phra Khanong' | 'Sriracha';
+  initialDashboardTab?: 'handover' | 'cp-closing';
 }
 
-export default function TurnoverDashboardV2({ onBackToV1, onNavigateToWorkspace, globalPlantFilter = 'All' }: TurnoverDashboardV2Props) {
+export default function TurnoverDashboardV2({
+  onBackToV1,
+  onNavigateToWorkspace,
+  globalPlantFilter = 'All',
+  initialDashboardTab = 'handover'
+}: TurnoverDashboardV2Props) {
   const { isTh } = useLanguage();
+  const [activeDashboardTab, setActiveDashboardTab] = useState<'handover' | 'cp-closing'>(initialDashboardTab);
+
+  useEffect(() => {
+    setActiveDashboardTab(initialDashboardTab);
+  }, [initialDashboardTab]);
 
   // REAL DATA SOURCE: Directly linked with Turnover (T/O) via PlantTurnSharedContext
   const {
@@ -454,6 +466,58 @@ export default function TurnoverDashboardV2({ onBackToV1, onNavigateToWorkspace,
         </div>
       </header>
 
+      {/* Turnover S/D & TA Navigation Bar (Handover Status vs CP Closing Dashboard) */}
+      <div className="flex items-center justify-between flex-wrap gap-3 bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+        <div className="inline-flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setActiveDashboardTab('handover')}
+            className={`px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-2 ${
+              activeDashboardTab === 'handover'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <ShieldCheck size={15} />
+            <span>{isTh ? 'สถานะการส่งมอบระบบ (T/O Handover Status)' : 'T/O Handover Status'}</span>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${
+              activeDashboardTab === 'handover' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+            }`}>
+              {kpiData.totalJobs}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveDashboardTab('cp-closing')}
+            className={`px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-2 ${
+              activeDashboardTab === 'cp-closing'
+                ? 'bg-[#002060] text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <BarChart3 size={15} />
+            <span>CP Closing Dashboard</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono font-extrabold bg-[#10B981] text-white">
+              164 CP (100%)
+            </span>
+          </button>
+        </div>
+
+        <span className="text-[11px] text-slate-500 dark:text-slate-400 px-2 hidden md:inline">
+          {activeDashboardTab === 'cp-closing'
+            ? 'Control Point (CP) & System Closing Matrix • Area S1 / S2 Cross-Filtering'
+            : 'Real-time Gate Verification, Digital Signatures & Punch Closure'}
+        </span>
+      </div>
+
+      {activeDashboardTab === 'cp-closing' ? (
+        <TurnoverCpClosingDashboard
+          globalPlantFilter={plantFilter}
+          onNavigateToWorkspace={(jobId) => handleOpenJobInWorkspace(jobId || 'job-101', 'turnover', 'sign')}
+        />
+      ) : (
+        <>
       {/* Filters Bar */}
       <section className="bg-white dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800 rounded-xl p-3 flex flex-wrap items-center gap-3 text-xs shadow-xs transition-colors">
         {/* Plant Filter */}
@@ -1218,6 +1282,8 @@ export default function TurnoverDashboardV2({ onBackToV1, onNavigateToWorkspace,
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

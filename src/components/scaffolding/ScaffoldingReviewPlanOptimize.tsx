@@ -4,10 +4,11 @@ import {
   MapPin, FileText, Search, Filter, Layers, Calendar,
   Building2, HardHat, Wrench, Check, X, ArrowRight,
   RefreshCw, Box, Ruler, Calculator, Compass, ZoomIn,
-  ZoomOut, RotateCcw, Users, TrendingDown, Award, Eye
+  ZoomOut, RotateCcw, Users, TrendingDown, Award, Eye, Gauge, Sliders
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { usePlantTurnShared } from '../../context/PlantTurnSharedContext';
+import ScaffoldingOptimizeCostSavingDashboard from './ScaffoldingOptimizeCostSavingDashboard';
 import {
   ScaffoldingSFJob,
   getStoredScaffoldingJobs,
@@ -26,6 +27,7 @@ interface ScaffoldingReviewPlanOptimizeProps {
   globalPlantFilter?: 'All' | 'Phra Khanong' | 'Sriracha';
   onNavigateToList?: () => void;
   onNavigateToCreate?: () => void;
+  defaultMode?: 'engineering' | 'cost-saving';
 }
 
 interface ContractorCandidate {
@@ -43,12 +45,14 @@ interface ContractorCandidate {
 export default function ScaffoldingReviewPlanOptimize({
   globalPlantFilter = 'All',
   onNavigateToList,
-  onNavigateToCreate
+  onNavigateToCreate,
+  defaultMode = 'engineering'
 }: ScaffoldingReviewPlanOptimizeProps) {
   const { language } = useLanguage();
   const isTh = language === 'th';
   const { events } = usePlantTurnShared();
 
+  const [viewMode, setViewMode] = useState<'engineering' | 'cost-saving'>(defaultMode);
   const [jobs, setJobs] = useState<ScaffoldingSFJob[]>(() => getStoredScaffoldingJobs());
   const [selectedJobId, setSelectedJobId] = useState<string>('');
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<'engineering' | 'rental' | 'plotplan'>('engineering');
@@ -94,6 +98,90 @@ export default function ScaffoldingReviewPlanOptimize({
   const triggerToast = (msg: string) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(null), 4000);
+  };
+
+  // =========================================================================
+  // SCAFFOLDING AUTO-OPTIMIZER SIMULATION & FACTOR CONFIGURATION STATE
+  // =========================================================================
+  interface ScaffoldingFactorConfig {
+    preset: 'balanced' | 'pe_safety' | 'max_saving' | 'rapid_turnaround' | 'custom';
+    peCompetencyWeight: number;      // 0 - 100 (Default 30)
+    rateEconomyWeight: number;       // 0 - 100 (Default 30)
+    sharedZoneWeight: number;        // 0 - 100 (Default 20)
+    crewAvailabilityWeight: number;  // 0 - 100 (Default 20)
+    peHeightThresholdM: number;      // 10m - 25m (Default 15m)
+    internalCrewMaxVolM3: number;    // 0 - 65 m³ (Default 36 m³)
+    minDropZoneClearanceM: number;   // 4m - 16m (Default 8m)
+    autoTrimHirePeriod: boolean;     // Right-size 30d -> 15d for standard scaffolds
+    simulationScope: 'pending_only' | 'all_active';
+  }
+
+  const DEFAULT_SCAFFOLD_FACTOR_CONFIG: ScaffoldingFactorConfig = {
+    preset: 'balanced',
+    peCompetencyWeight: 30,
+    rateEconomyWeight: 30,
+    sharedZoneWeight: 20,
+    crewAvailabilityWeight: 20,
+    peHeightThresholdM: 15,
+    internalCrewMaxVolM3: 36,
+    minDropZoneClearanceM: 8,
+    autoTrimHirePeriod: true,
+    simulationScope: 'all_active'
+  };
+
+  const [scaffoldFactorConfig, setScaffoldFactorConfig] = useState<ScaffoldingFactorConfig>(DEFAULT_SCAFFOLD_FACTOR_CONFIG);
+  const [showScaffoldSimModal, setShowScaffoldSimModal] = useState<boolean>(false);
+  const [showScaffoldFactorPanel, setShowScaffoldFactorPanel] = useState<boolean>(true);
+  const [scaffoldSimSelectedIds, setScaffoldSimSelectedIds] = useState<Record<string, boolean>>({});
+  const [scaffoldSimCustomContractor, setScaffoldSimCustomContractor] = useState<Record<string, ContractorCompanyType>>({});
+
+  const applyScaffoldPreset = (preset: ScaffoldingFactorConfig['preset']) => {
+    if (preset === 'balanced') {
+      setScaffoldFactorConfig(prev => ({
+        ...DEFAULT_SCAFFOLD_FACTOR_CONFIG,
+        simulationScope: prev.simulationScope
+      }));
+    } else if (preset === 'pe_safety') {
+      setScaffoldFactorConfig(prev => ({
+        ...prev,
+        preset: 'pe_safety',
+        peCompetencyWeight: 55,
+        rateEconomyWeight: 10,
+        sharedZoneWeight: 15,
+        crewAvailabilityWeight: 20,
+        peHeightThresholdM: 12,
+        internalCrewMaxVolM3: 24,
+        minDropZoneClearanceM: 10,
+        autoTrimHirePeriod: false
+      }));
+    } else if (preset === 'max_saving') {
+      setScaffoldFactorConfig(prev => ({
+        ...prev,
+        preset: 'max_saving',
+        peCompetencyWeight: 20,
+        rateEconomyWeight: 45,
+        sharedZoneWeight: 25,
+        crewAvailabilityWeight: 10,
+        peHeightThresholdM: 15,
+        internalCrewMaxVolM3: 55,
+        minDropZoneClearanceM: 8,
+        autoTrimHirePeriod: true
+      }));
+    } else if (preset === 'rapid_turnaround') {
+      setScaffoldFactorConfig(prev => ({
+        ...prev,
+        preset: 'rapid_turnaround',
+        peCompetencyWeight: 25,
+        rateEconomyWeight: 10,
+        sharedZoneWeight: 20,
+        crewAvailabilityWeight: 45,
+        peHeightThresholdM: 15,
+        internalCrewMaxVolM3: 36,
+        minDropZoneClearanceM: 8,
+        autoTrimHirePeriod: true
+      }));
+    }
+    setScaffoldSimCustomContractor({});
   };
 
   useEffect(() => {
@@ -429,32 +517,190 @@ export default function ScaffoldingReviewPlanOptimize({
     }
   };
 
-  // Auto-Optimize All Pending Scaffolding Requests in View
-  const handleAutoOptimizeAllPending = () => {
-    const pendingList = filteredJobs.filter(j => j.status === 'Requested' || j.status === 'Under Review');
-    if (pendingList.length === 0) {
-      triggerToast(
-        isTh
-          ? 'ใบงานนั่งร้านทั้งหมดในรายการได้รับการอนุมัติและจัดสรรแล้ว'
-          : 'All scaffolding requests in the current filter are already optimized.'
-      );
+  // Evaluate a single scaffolding job under active ScaffoldingFactorConfig
+  const evaluateScaffoldJobSimulation = (job: ScaffoldingSFJob, cfg: ScaffoldingFactorConfig = scaffoldFactorConfig) => {
+    const sb = job.markingLocation?.scaleBlock;
+    const w = job.estimate?.weight || sb?.width || job.width || 4;
+    const l = job.estimate?.length || sb?.length || job.length || 6;
+    const h = job.estimate?.height || Number(sb?.height) || job.height || 10;
+    const vol = Number((w * l * h).toFixed(1));
+    const needsPE = job.heavyDuty === 'Y' || job.specialPurpose === 'Y' || h >= cfg.peHeightThresholdM;
+
+    const totalRaw = Math.max(
+      1,
+      cfg.peCompetencyWeight + cfg.rateEconomyWeight + cfg.sharedZoneWeight + cfg.crewAvailabilityWeight
+    );
+    const wPE = (cfg.peCompetencyWeight / totalRaw) * 100;
+    const wEcon = (cfg.rateEconomyWeight / totalRaw) * 100;
+    const wShared = (cfg.sharedZoneWeight / totalRaw) * 100;
+    const wCrew = (cfg.crewAvailabilityWeight / totalRaw) * 100;
+
+    const contractorProfiles: Array<{
+      company: ContractorCompanyType;
+      peCert: boolean;
+      peNorm: number;
+      econNorm: number;
+      crewNorm: number;
+      ratePerM3Day: number;
+    }> = [
+      {
+        company: 'Kaefer',
+        peCert: true,
+        peNorm: needsPE ? 1.0 : 0.85,
+        econNorm: 0.72,
+        crewNorm: 0.96,
+        ratePerM3Day: 14.5
+      },
+      {
+        company: 'Altrad',
+        peCert: true,
+        peNorm: job.specialPurpose === 'Y' ? 1.0 : needsPE ? 0.94 : 0.86,
+        econNorm: 0.76,
+        crewNorm: 0.92,
+        ratePerM3Day: 14.0
+      },
+      {
+        company: 'Contractor A',
+        peCert: false,
+        peNorm: needsPE ? 0.35 : 0.88,
+        econNorm: 0.95,
+        crewNorm: 0.80,
+        ratePerM3Day: 12.2
+      },
+      {
+        company: 'Contractor B',
+        peCert: false,
+        peNorm: needsPE ? 0.30 : 0.82,
+        econNorm: 0.88,
+        crewNorm: 0.74,
+        ratePerM3Day: 12.8
+      },
+      {
+        company: 'Maintenance Team',
+        peCert: true,
+        peNorm: vol <= cfg.internalCrewMaxVolM3 ? 0.92 : 0.45,
+        econNorm: vol <= cfg.internalCrewMaxVolM3 ? 1.0 : 0.50,
+        crewNorm: vol <= cfg.internalCrewMaxVolM3 ? 0.85 : 0.45,
+        ratePerM3Day: 5.5
+      }
+    ];
+
+    const ranked = contractorProfiles
+      .filter(p => (needsPE ? p.peCert : true))
+      .map(p => {
+        const sameZoneCount = filteredJobs.filter(
+          other => other.id !== job.id && other.locationArea === job.locationArea && other.company === p.company
+        ).length;
+        const sharedNorm = Math.min(1.0, 0.65 + sameZoneCount * 0.12);
+
+        const pePts = Math.round(wPE * p.peNorm);
+        const econPts = Math.round(wEcon * p.econNorm);
+        const sharedPts = Math.round(wShared * sharedNorm);
+        const crewPts = Math.round(wCrew * p.crewNorm);
+        const score = Math.min(99, Math.max(45, pePts + econPts + sharedPts + crewPts));
+
+        return {
+          ...p,
+          score,
+          breakdown: { pePts, econPts, sharedPts, crewPts }
+        };
+      })
+      .sort((a, b) => b.score - a.score);
+
+    const best = ranked[0] || contractorProfiles[0];
+    const overrideCompany = scaffoldSimCustomContractor[job.id];
+    const chosenProfile = overrideCompany
+      ? ranked.find(r => r.company === overrideCompany) || best
+      : best;
+
+    const shouldTrimPeriod = cfg.autoTrimHirePeriod && job.hirePeriod === '30 days' && vol <= 95 && job.heavyDuty !== 'Y';
+    const recommendedHirePeriod: HirePeriodType = shouldTrimPeriod ? '15 days' : (job.hirePeriod || '15 days');
+    const savedHireDays = shouldTrimPeriod ? 15 : 4;
+    const rateSavingThb = Math.round(vol * Math.max(1.5, 16.5 - chosenProfile.ratePerM3Day) * 12);
+    const offHireSavingThb = Math.round(vol * chosenProfile.ratePerM3Day * savedHireDays * 0.45);
+    const estSavingThb = rateSavingThb + offHireSavingThb;
+
+    const reason = isTh
+      ? `${needsPE ? `ต้องมี Civil PE (สูง ${h}m ≥ ${cfg.peHeightThresholdM}m)` : `งานมาตรฐาน (${h}m)`} · แนะนำ ${chosenProfile.company} (${chosenProfile.score}%)${shouldTrimPeriod ? ' · ลดวันเช่า 30→15 วัน' : ''}`
+      : `${needsPE ? `Civil PE Gate (${h}m ≥ ${cfg.peHeightThresholdM}m)` : `Standard Bay (${h}m)`} · Matched ${chosenProfile.company} (${chosenProfile.score}%)${shouldTrimPeriod ? ' · Trimmed 30d→15d' : ''}`;
+
+    return {
+      job,
+      width: w,
+      length: l,
+      height: h,
+      volumeM3: vol,
+      needsPE,
+      recommendedContractor: chosenProfile.company,
+      recommendedHirePeriod,
+      shouldTrimPeriod,
+      score: chosenProfile.score,
+      breakdown: 'breakdown' in chosenProfile ? chosenProfile.breakdown : { pePts: 25, econPts: 25, sharedPts: 20, crewPts: 20 },
+      estSavingThb,
+      reason,
+      eligibleContractors: ranked
+    };
+  };
+
+  const scaffoldSimulationRows = useMemo(() => {
+    const scopeJobs = filteredJobs.filter(j => {
+      if (scaffoldFactorConfig.simulationScope === 'pending_only') {
+        return j.status === 'Requested' || j.status === 'Under Review';
+      }
+      return j.status !== 'Completed' && j.status !== 'Rejected';
+    });
+    const list = scopeJobs.length > 0 ? scopeJobs : filteredJobs;
+    return list.map(j => evaluateScaffoldJobSimulation(j, scaffoldFactorConfig));
+  }, [filteredJobs, scaffoldFactorConfig, scaffoldSimCustomContractor, isTh]);
+
+  const handleOpenScaffoldAutoOptimizer = (expandFactorPanel: boolean = true) => {
+    const hasPending = filteredJobs.some(j => j.status === 'Requested' || j.status === 'Under Review');
+    const nextScope = hasPending ? scaffoldFactorConfig.simulationScope : 'all_active';
+    setScaffoldFactorConfig(prev => ({ ...prev, simulationScope: nextScope }));
+    const initialSel: Record<string, boolean> = {};
+    filteredJobs.forEach(j => {
+      initialSel[j.id] = true;
+    });
+    setScaffoldSimSelectedIds(initialSel);
+    setShowScaffoldFactorPanel(expandFactorPanel);
+    setShowScaffoldSimModal(true);
+  };
+
+  // Confirm & Apply Batch Scaffolding Simulation
+  const handleConfirmScaffoldAutoOptimization = () => {
+    const toApply = scaffoldSimulationRows.filter(r => scaffoldSimSelectedIds[r.job.id] !== false);
+    if (toApply.length === 0) {
+      setShowScaffoldSimModal(false);
       return;
     }
 
-    pendingList.forEach((job, idx) => {
-      const sb = job.markingLocation?.scaleBlock;
-      const w = sb?.width || 4;
-      const l = sb?.length || 6;
-      const h = Number(sb?.height) || 10;
-      const vol = Number((w * l * h).toFixed(1));
-      const bestContractor: ContractorCompanyType =
-        job.heavyDuty === 'Y' ? 'Kaefer' : job.specialPurpose === 'Y' ? 'Altrad' : idx % 2 === 0 ? 'Kaefer' : 'Altrad';
+    toApply.forEach(row => {
+      const { job, width: w, length: l, height: h, volumeM3: vol, recommendedContractor, recommendedHirePeriod } = row;
+      const nextOffHire = calculateInitialOffHireDate(job.requiredDate || '2026-10-15', recommendedHirePeriod);
 
       updateScaffoldingJob(job.id, {
         status: 'Approved',
         lifecycleStage: 'In-use',
-        company: bestContractor,
-        contractor: bestContractor,
+        company: recommendedContractor,
+        contractor: recommendedContractor,
+        hirePeriod: recommendedHirePeriod,
+        offHireDate: nextOffHire,
+        approvalRemarks: `AI Factor-Optimized [${scaffoldFactorConfig.preset.toUpperCase()}]: ${vol} m³ → ${recommendedContractor} (${row.score}% match, Est. Saved ฿${row.estSavingThb.toLocaleString()})`,
+        markingLocation: {
+          x: job.markingLocation?.x ?? job.x ?? 50,
+          y: job.markingLocation?.y ?? job.y ?? 45,
+          gridZone: job.markingLocation?.gridZone || 'B2',
+          dropZoneRadius: scaffoldFactorConfig.minDropZoneClearanceM,
+          scaleBlock: {
+            width: w,
+            length: l,
+            height: h,
+            tiers: Math.max(1, Math.round(h / 2)),
+            rotation: job.markingLocation?.scaleBlock?.rotation || 0,
+            color: '#10b981'
+          },
+          description: `${job.equipmentTag} Optimized Footprint (${w}x${l}x${h}m)`
+        },
         estimate: {
           isEvaluated: true,
           baseHeight: 0,
@@ -470,12 +716,12 @@ export default function ScaffoldingReviewPlanOptimize({
         },
         hireControl: {
           onHireDate: job.requiredDate,
-          offHireDate: job.offHireDate,
+          offHireDate: nextOffHire,
           extensionRequest: 'None',
-          originalOffHireDate: job.offHireDate,
-          totalDays: job.hirePeriod === '30 days' ? 30 : 15,
+          originalOffHireDate: nextOffHire,
+          totalDays: recommendedHirePeriod === '30 days' ? 30 : 15,
           tagType: 'Green',
-          contractorBy: `${bestContractor} Lead`,
+          contractorBy: `${recommendedContractor} Lead`,
           requestorBy: job.requestorName || 'Operations Engineer',
           scaffoldTag: 'Green Tag (In-use)',
           updatedAt: new Date().toISOString()
@@ -483,10 +729,11 @@ export default function ScaffoldingReviewPlanOptimize({
       });
     });
 
+    setShowScaffoldSimModal(false);
     triggerToast(
       isTh
-        ? `จัดสรรผู้รับเหมา คำนวณปริมาตร และอนุมัติอัตโนมัติสำเร็จ ${pendingList.length} ใบงาน!`
-        : `Auto-optimized volume estimation & contractor allocation for ${pendingList.length} scaffolding jobs!`
+        ? `จัดสรรผู้รับเหมา คำนวณปริมาตร และอนุมัติตามตัวแปรจำลองสำเร็จ ${toApply.length} ใบงาน!`
+        : `Successfully optimized ${toApply.length} scaffolding requests using configured simulation factors!`
     );
   };
 
@@ -501,6 +748,91 @@ export default function ScaffoldingReviewPlanOptimize({
 
   return (
     <div className="space-y-5 max-w-7xl mx-auto w-full pb-16 animate-in fade-in duration-200">
+      {/* ========================================================================= */}
+      {/* SCAFFOLDING OPTIMIZATION & COST SAVING TAB MENU SWITCHER BAR              */}
+      {/* ========================================================================= */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-2.5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl flex-wrap">
+          <button
+            type="button"
+            onClick={() => setViewMode('engineering')}
+            className={`px-3.5 py-2 rounded-lg text-xs font-extrabold transition-all cursor-pointer flex items-center gap-2 ${
+              viewMode === 'engineering'
+                ? 'bg-cyan-700 text-white shadow-sm'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Gauge size={15} />
+            <span>
+              {isTh
+                ? '1. ตรวจสอบวิศวกรรม & จัดสรรนั่งร้าน (Engineering Gate)'
+                : '1. Engineering Review & Plan Optimizer'}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setViewMode('cost-saving')}
+            className={`px-3.5 py-2 rounded-lg text-xs font-extrabold transition-all cursor-pointer flex items-center gap-2 ${
+              viewMode === 'cost-saving'
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-sm'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <TrendingDown size={15} />
+            <span>
+              {isTh
+                ? '2. แดชบอร์ดลดต้นทุน & ความคุ้มค่านั่งร้าน (Optimize & Cost Saving)'
+                : '2. Optimize & Cost Saving Dashboard'}
+            </span>
+            <span
+              className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                viewMode === 'cost-saving'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+              }`}
+            >
+              {isTh ? 'ประหยัดงบ AI' : 'Cost Saving'}
+            </span>
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2 px-2 text-xs">
+          <span className="text-slate-500 dark:text-slate-400 font-medium hidden md:inline">
+            {isTh ? 'สถานะความคุ้มค่า:' : 'Optimization Impact:'}
+          </span>
+          <button
+            type="button"
+            onClick={() => setViewMode(viewMode === 'cost-saving' ? 'engineering' : 'cost-saving')}
+            className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-extrabold flex items-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <Sparkles size={13} />
+            <span>
+              {viewMode === 'cost-saving'
+                ? isTh
+                  ? 'สลับไปหน้าตรวจวิศวกรรมรายใบงาน'
+                  : 'Switch to Engineering Gate'
+                : isTh
+                ? 'ดูวิเคราะห์การประหยัดค่าเช่านั่งร้าน (THB)'
+                : 'View Cost Saving Analytics (THB)'}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {viewMode === 'cost-saving' ? (
+        <ScaffoldingOptimizeCostSavingDashboard
+          jobs={jobs}
+          globalPlantFilter={globalPlantFilter}
+          selectedEventFilter={selectedEventFilter}
+          onSwitchToEngineeringGate={() => setViewMode('engineering')}
+          onInspectJobInEngineeringGate={(job) => {
+            setSelectedJobId(job.id);
+            setViewMode('engineering');
+          }}
+        />
+      ) : (
+        <>
       {/* Top Header Banner */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 sm:p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
         <div className="space-y-1.5 max-w-2xl">
@@ -534,38 +866,37 @@ export default function ScaffoldingReviewPlanOptimize({
         <div className="flex items-center gap-2.5 flex-wrap shrink-0">
           <button
             type="button"
-            onClick={handleAutoOptimizeAllPending}
+            onClick={() => handleOpenScaffoldAutoOptimizer(true)}
+            className="h-11 px-3.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-cyan-50/80 dark:hover:bg-cyan-950/40 text-cyan-800 dark:text-cyan-300 border border-cyan-300 dark:border-cyan-800 font-extrabold text-xs flex items-center gap-2 cursor-pointer transition-all shadow-2xs"
+            title={isTh ? 'ตั้งค่าค่าน้ำหนักตัวแปรและเกณฑ์วิศวกรรมโยธาสำหรับการจำลองจัดสรรนั่งร้าน' : 'Configure weighting factors and Civil PE thresholds for Scaffolding Auto-Optimizer'}
+          >
+            <Sliders size={14} className="text-cyan-600 dark:text-cyan-400" />
+            <span>{isTh ? 'ตั้งค่าตัวแปรจำลอง (Factor Config)' : 'Factor Config'}</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-black bg-cyan-100 dark:bg-cyan-900/70 text-cyan-800 dark:text-cyan-200">
+              {scaffoldFactorConfig.preset === 'balanced'
+                ? (isTh ? 'สมดุล' : 'Balanced')
+                : scaffoldFactorConfig.preset === 'pe_safety'
+                  ? (isTh ? 'เน้น PE' : 'PE Strict')
+                  : scaffoldFactorConfig.preset === 'max_saving'
+                    ? (isTh ? 'ลดต้นทุน' : 'Max Save')
+                    : scaffoldFactorConfig.preset === 'rapid_turnaround'
+                      ? (isTh ? 'ทีมด่วน' : 'Rapid')
+                      : (isTh ? 'กำหนดเอง' : 'Custom')}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleOpenScaffoldAutoOptimizer(true)}
             className="h-11 px-4 rounded-xl bg-gradient-to-r from-cyan-700 to-teal-600 hover:from-cyan-800 hover:to-teal-700 text-white font-black text-xs shadow-md shadow-cyan-700/20 flex items-center gap-2 cursor-pointer transition-all active:scale-95"
           >
             <Sparkles size={15} />
             <span>
               {isTh
-                ? `จัดสรรอัตโนมัติ (${kpiSummary.pendingCount} งานรอตรวจ)`
-                : `Auto-Optimize Pending (${kpiSummary.pendingCount})`}
+                ? `จำลองจัดสรรอัตโนมัติ (Auto-Optimize Simulation)`
+                : `Auto-Optimize Simulation`}
             </span>
           </button>
-
-          {onNavigateToCreate && (
-            <button
-              type="button"
-              onClick={onNavigateToCreate}
-              className="h-11 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
-            >
-              <HardHat size={14} className="text-cyan-600" />
-              <span>{isTh ? '+ สร้าง Event & ใบงาน' : '+ Create Event & Job'}</span>
-            </button>
-          )}
-
-          {onNavigateToList && (
-            <button
-              type="button"
-              onClick={onNavigateToList}
-              className="h-11 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
-            >
-              <FileText size={14} className="text-cyan-600" />
-              <span>{isTh ? 'ทะเบียนคำขอ (SF02)' : 'Requests Lists (SF02)'}</span>
-            </button>
-          )}
         </div>
       </div>
 
@@ -641,16 +972,19 @@ export default function ScaffoldingReviewPlanOptimize({
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-2xs">
+        <div
+          onClick={() => setViewMode('cost-saving')}
+          className="bg-white dark:bg-slate-900 rounded-2xl border border-teal-200 dark:border-teal-800/80 hover:border-teal-500 p-4 shadow-2xs cursor-pointer transition-all group"
+        >
           <div className="flex items-center justify-between text-xs font-bold text-teal-600 dark:text-teal-400 mb-1">
             <span>{isTh ? 'ลดวันเช่าซ้ำซ้อน (Savings)' : 'Off-Hire Optimization'}</span>
-            <TrendingDown size={15} />
+            <TrendingDown size={15} className="group-hover:scale-110 transition-transform" />
           </div>
           <div className="text-2xl font-black text-teal-600 dark:text-teal-400 font-mono">
             -{kpiSummary.estSavingsDays} <span className="text-xs font-normal text-slate-500">{isTh ? 'วันเช่า' : 'hire days'}</span>
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-            {isTh ? 'ใช้โครงสร้างร่วมในโซนเดียวกัน' : 'Shared bay & off-hire control'}
+          <div className="text-[11px] text-teal-700 dark:text-teal-300 font-bold mt-1 flex items-center gap-1">
+            <span>{isTh ? 'เปิดแดชบอร์ดลดต้นทุน →' : 'Open Cost Saving Tab →'}</span>
           </div>
         </div>
       </div>
@@ -851,6 +1185,14 @@ export default function ScaffoldingReviewPlanOptimize({
                 >
                   <MapPin size={13} />
                   <span>{isTh ? '3. ผังโรงงาน & Drop-Zone' : '3. Plot Plan & Clash'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('cost-saving')}
+                  className="px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100/80 dark:hover:bg-emerald-950/60"
+                >
+                  <TrendingDown size={13} />
+                  <span>{isTh ? '4. แดชบอร์ดลดต้นทุน (THB)' : '4. Cost Saving Dashboard'}</span>
                 </button>
               </div>
             </div>
@@ -1409,6 +1751,611 @@ export default function ScaffoldingReviewPlanOptimize({
           </div>
         )}
       </div>
+        </>
+      )}
+
+      {/* ========================================================================= */}
+      {/* SCAFFOLDING AUTO-OPTIMIZER SIMULATION & INTERACTIVE FACTOR CONFIG MODAL   */}
+      {/* ========================================================================= */}
+      {showScaffoldSimModal && (() => {
+        const totalRaw = Math.max(
+          1,
+          scaffoldFactorConfig.peCompetencyWeight +
+            scaffoldFactorConfig.rateEconomyWeight +
+            scaffoldFactorConfig.sharedZoneWeight +
+            scaffoldFactorConfig.crewAvailabilityWeight
+        );
+        const normPE = Math.round((scaffoldFactorConfig.peCompetencyWeight / totalRaw) * 100);
+        const normEcon = Math.round((scaffoldFactorConfig.rateEconomyWeight / totalRaw) * 100);
+        const normShared = Math.round((scaffoldFactorConfig.sharedZoneWeight / totalRaw) * 100);
+        const normCrew = Math.max(0, 100 - normPE - normEcon - normShared);
+
+        const selectedRows = scaffoldSimulationRows.filter(r => scaffoldSimSelectedIds[r.job.id] !== false);
+        const avgScore = scaffoldSimulationRows.length > 0
+          ? Math.round(scaffoldSimulationRows.reduce((s, r) => s + r.score, 0) / scaffoldSimulationRows.length)
+          : 0;
+        const totalBatchSavingThb = selectedRows.reduce((s, r) => s + r.estSavingThb, 0);
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-6xl w-full p-5 sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 max-h-[92vh] flex flex-col animate-in zoom-in-95 duration-200">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2 text-cyan-700 dark:text-cyan-400">
+                    <Sparkles size={20} />
+                    <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
+                      {isTh
+                        ? 'จำลองจัดสรรงานนั่งร้านอัตโนมัติ & ตั้งค่าตัวแปร (Scaffolding Auto-Optimizer & Factor Config)'
+                        : 'Scaffolding Auto-Optimizer Simulation & Factor Configuration'}
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-extrabold bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800">
+                      SF03 Simulation Engine
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {isTh
+                      ? 'ปรับตั้งค่าน้ำหนักตัวแปร (Factor Weights) เกณฑ์ความสูงวิศวกรโยธา (Civil PE) และเงื่อนไขการลดวันเช่าเพื่อจำลองผลการจัดสรรแบบเรียลไทม์'
+                      : 'Configure multi-objective scoring weights, Civil PE elevation triggers, and rental off-hire optimization rules in real time.'}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowScaffoldFactorPanel(prev => !prev)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold border flex items-center gap-1.5 transition-all cursor-pointer ${
+                      showScaffoldFactorPanel
+                        ? 'bg-cyan-50 dark:bg-cyan-950/70 border-cyan-300 dark:border-cyan-700 text-cyan-800 dark:text-cyan-300'
+                        : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    <Sliders size={14} />
+                    <span>
+                      {showScaffoldFactorPanel
+                        ? (isTh ? 'ซ่อนแผงตั้งค่าตัวแปร' : 'Hide Factor Config')
+                        : (isTh ? 'เปิดแผงตั้งค่าตัวแปร (Factor Config)' : 'Show Factor Config')}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowScaffoldSimModal(false)}
+                    className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Scrollable Content */}
+              <div className="flex-1 overflow-y-auto space-y-4 pr-1 custom-scrollbar">
+                {showScaffoldFactorPanel && (
+                  <div className="p-4 rounded-2xl bg-slate-50/90 dark:bg-slate-800/50 border border-cyan-200/80 dark:border-cyan-900/60 space-y-4">
+                    {/* Strategy Presets */}
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+                      <div className="flex items-center gap-2">
+                        <Sliders size={15} className="text-cyan-700 dark:text-cyan-400" />
+                        <span className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                          {isTh ? '1. โหมดกลยุทธ์สำเร็จรูป (Scaffolding Optimization Presets):' : '1. Scaffolding Optimization Presets:'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {[
+                          {
+                            id: 'balanced' as const,
+                            labelTh: 'สมดุลวิศวกรรม & ต้นทุน (Balanced)',
+                            labelEn: 'Balanced PE & Cost',
+                            desc: 'PE ≥15m · 30/30/20/20'
+                          },
+                          {
+                            id: 'pe_safety' as const,
+                            labelTh: 'เน้นวิศวกรโยธา PE สูงสุด (Strict Civil PE)',
+                            labelEn: 'Strict Civil PE Safety',
+                            desc: 'PE ≥12m · PE Weight 55%'
+                          },
+                          {
+                            id: 'max_saving' as const,
+                            labelTh: 'เน้นประหยัดค่าเช่าสูงสุด (Max Cost Saving)',
+                            labelEn: 'Max Rental Cost Saving',
+                            desc: 'Economy 45% + Trim 30d→15d'
+                          },
+                          {
+                            id: 'rapid_turnaround' as const,
+                            labelTh: 'เน้นติดตั้งด่วน Turnaround (Rapid Crew)',
+                            labelEn: 'Rapid Turnaround Crew',
+                            desc: 'Crew Speed 45%'
+                          }
+                        ].map(p => {
+                          const active = scaffoldFactorConfig.preset === p.id;
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => applyScaffoldPreset(p.id)}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                                active
+                                  ? 'bg-cyan-700 text-white border-cyan-700 shadow-xs'
+                                  : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-cyan-400'
+                              }`}
+                            >
+                              <span>{isTh ? p.labelTh : p.labelEn}</span>
+                              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded ${active ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
+                                {p.desc}
+                              </span>
+                            </button>
+                          );
+                        })}
+
+                        <button
+                          type="button"
+                          onClick={() => applyScaffoldPreset('balanced')}
+                          className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 flex items-center gap-1 cursor-pointer"
+                        >
+                          <RotateCcw size={12} />
+                          <span>{isTh ? 'รีเซ็ต' : 'Reset'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Two-Column Sliders */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                      {/* Left 6 Cols: Weights */}
+                      <div className="lg:col-span-6 bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                            {isTh ? '2. ค่าน้ำหนักการให้คะแนนผู้รับเหมา (Scoring Weights 100%)' : '2. Contractor Scoring Weights (Normalized 100%)'}
+                          </span>
+                          <span className="text-[10px] font-mono font-bold text-cyan-700 dark:text-cyan-400">
+                            {normPE}% + {normEcon}% + {normShared}% + {normCrew}% = 100%
+                          </span>
+                        </div>
+
+                        <div className="h-2.5 w-full rounded-full overflow-hidden flex bg-slate-100 dark:bg-slate-800">
+                          <div style={{ width: `${normPE}%` }} className="bg-rose-500 transition-all" />
+                          <div style={{ width: `${normEcon}%` }} className="bg-emerald-500 transition-all" />
+                          <div style={{ width: `${normShared}%` }} className="bg-cyan-500 transition-all" />
+                          <div style={{ width: `${normCrew}%` }} className="bg-amber-500 transition-all" />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-rose-500" />
+                                {isTh ? 'ความเชี่ยวชาญ Civil PE' : 'Civil PE & Structural Fit'}
+                              </span>
+                              <span className="font-mono font-black text-rose-600 dark:text-rose-400">{normPE}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={5}
+                              max={70}
+                              step={5}
+                              value={scaffoldFactorConfig.peCompetencyWeight}
+                              onChange={e =>
+                                setScaffoldFactorConfig(prev => ({
+                                  ...prev,
+                                  preset: 'custom',
+                                  peCompetencyWeight: Number(e.target.value)
+                                }))
+                              }
+                              className="w-full accent-rose-600 cursor-pointer"
+                            />
+                          </div>
+
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                {isTh ? 'ความประหยัดค่าเช่า (Rate Economy)' : 'Contractor Rate Economy'}
+                              </span>
+                              <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">{normEcon}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={5}
+                              max={70}
+                              step={5}
+                              value={scaffoldFactorConfig.rateEconomyWeight}
+                              onChange={e =>
+                                setScaffoldFactorConfig(prev => ({
+                                  ...prev,
+                                  preset: 'custom',
+                                  rateEconomyWeight: Number(e.target.value)
+                                }))
+                              }
+                              className="w-full accent-emerald-600 cursor-pointer"
+                            />
+                          </div>
+
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-cyan-500" />
+                                {isTh ? 'ใช้ทีมร่วมในโซนเดียวกัน (Shared Zone)' : 'Shared Zone Consolidation'}
+                              </span>
+                              <span className="font-mono font-black text-cyan-600 dark:text-cyan-400">{normShared}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={5}
+                              max={70}
+                              step={5}
+                              value={scaffoldFactorConfig.sharedZoneWeight}
+                              onChange={e =>
+                                setScaffoldFactorConfig(prev => ({
+                                  ...prev,
+                                  preset: 'custom',
+                                  sharedZoneWeight: Number(e.target.value)
+                                }))
+                              }
+                              className="w-full accent-cyan-600 cursor-pointer"
+                            />
+                          </div>
+
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-amber-500" />
+                                {isTh ? 'ความพร้อมทีมช่าง (Crew Speed)' : 'Crew Availability & Speed'}
+                              </span>
+                              <span className="font-mono font-black text-amber-600 dark:text-amber-400">{normCrew}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={5}
+                              max={70}
+                              step={5}
+                              value={scaffoldFactorConfig.crewAvailabilityWeight}
+                              onChange={e =>
+                                setScaffoldFactorConfig(prev => ({
+                                  ...prev,
+                                  preset: 'custom',
+                                  crewAvailabilityWeight: Number(e.target.value)
+                                }))
+                              }
+                              className="w-full accent-amber-600 cursor-pointer"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right 6 Cols: Engineering & Rental Thresholds */}
+                      <div className="lg:col-span-6 bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                            {isTh ? '3. เกณฑ์วิศวกรรมและการลดวันเช่า (Engineering & Rental Rules)' : '3. Engineering Gates & Rental Optimization Rules'}
+                          </span>
+                          <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                            Configurable Thresholds
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-700 dark:text-slate-200">
+                                {isTh ? 'ความสูงบังคับ Civil PE' : 'Civil PE Height Gate'}
+                              </span>
+                              <span className="font-mono font-black text-rose-600 dark:text-rose-400">
+                                ≥{scaffoldFactorConfig.peHeightThresholdM}m
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={10}
+                              max={25}
+                              step={1}
+                              value={scaffoldFactorConfig.peHeightThresholdM}
+                              onChange={e =>
+                                setScaffoldFactorConfig(prev => ({
+                                  ...prev,
+                                  preset: 'custom',
+                                  peHeightThresholdM: Number(e.target.value)
+                                }))
+                              }
+                              className="w-full accent-rose-600 cursor-pointer"
+                            />
+                          </div>
+
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-700 dark:text-slate-200">
+                                {isTh ? 'เพดานทีมช่างภายใน' : 'Internal Crew Max Vol'}
+                              </span>
+                              <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
+                                ≤{scaffoldFactorConfig.internalCrewMaxVolM3}m³
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0}
+                              max={65}
+                              step={4}
+                              value={scaffoldFactorConfig.internalCrewMaxVolM3}
+                              onChange={e =>
+                                setScaffoldFactorConfig(prev => ({
+                                  ...prev,
+                                  preset: 'custom',
+                                  internalCrewMaxVolM3: Number(e.target.value)
+                                }))
+                              }
+                              className="w-full accent-emerald-600 cursor-pointer"
+                            />
+                          </div>
+
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-700 dark:text-slate-200">
+                                {isTh ? 'รัศมี Drop-Zone ขั้นต่ำ' : 'Min Drop-Zone Radius'}
+                              </span>
+                              <span className="font-mono font-black text-cyan-600 dark:text-cyan-400">
+                                {scaffoldFactorConfig.minDropZoneClearanceM}m
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={4}
+                              max={16}
+                              step={1}
+                              value={scaffoldFactorConfig.minDropZoneClearanceM}
+                              onChange={e =>
+                                setScaffoldFactorConfig(prev => ({
+                                  ...prev,
+                                  preset: 'custom',
+                                  minDropZoneClearanceM: Number(e.target.value)
+                                }))
+                              }
+                              className="w-full accent-cyan-600 cursor-pointer"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                          <label className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 flex items-start gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={scaffoldFactorConfig.autoTrimHirePeriod}
+                              onChange={e =>
+                                setScaffoldFactorConfig(prev => ({
+                                  ...prev,
+                                  preset: 'custom',
+                                  autoTrimHirePeriod: e.target.checked
+                                }))
+                              }
+                              className="mt-0.5 rounded text-cyan-600 focus:ring-cyan-500"
+                            />
+                            <div className="text-[11px] leading-tight">
+                              <span className="font-bold text-slate-800 dark:text-slate-200 block">
+                                {isTh ? 'ปรับลดรอบเช่า 30 วัน → 15 วันอัตโนมัติ' : 'Auto-Right-Size 30d → 15d Hire Window'}
+                              </span>
+                              <span className="text-[10px] text-slate-500">
+                                {isTh ? 'สำหรับนั่งร้านทั่วไปขนาด ≤95 m³ เพื่อลดค่าเช่าค้าง' : 'Trims standard scaffolds ≤95 m³ to avoid idle rental'}
+                              </span>
+                            </div>
+                          </label>
+
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 space-y-1">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase block">
+                              {isTh ? 'ขอบเขตใบงานนั่งร้านที่นำมาจำลอง:' : 'Simulation Scope:'}
+                            </span>
+                            <select
+                              value={scaffoldFactorConfig.simulationScope}
+                              onChange={e =>
+                                setScaffoldFactorConfig(prev => ({
+                                  ...prev,
+                                  simulationScope: e.target.value as 'pending_only' | 'all_active'
+                                }))
+                              }
+                              className="w-full px-2 py-1 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-800 dark:text-slate-200"
+                            >
+                              <option value="all_active">
+                                {isTh ? 'ใบงานที่กำลังดำเนินการทั้งหมด (All Active)' : 'All Active Scaffolding Jobs'}
+                              </option>
+                              <option value="pending_only">
+                                {isTh ? 'เฉพาะรอตรวจสอบ (Requested / Under Review)' : 'Pending Review Only'}
+                              </option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 4 KPI Summary Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3 rounded-xl bg-cyan-50/70 dark:bg-cyan-950/30 border border-cyan-200 dark:border-cyan-800/80 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-cyan-800 dark:text-cyan-300 uppercase tracking-wider block">
+                        {isTh ? 'ใบงานที่เลือกจำลอง' : 'Selected Simulation Jobs'}
+                      </span>
+                      <span className="text-lg font-black text-cyan-900 dark:text-white font-mono">
+                        {selectedRows.length} / {scaffoldSimulationRows.length}
+                      </span>
+                    </div>
+                    <CheckCircle2 size={18} className="text-cyan-600 dark:text-cyan-400" />
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/80 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider block">
+                        {isTh ? 'คะแนนจับคู่เฉลี่ย' : 'Avg Match Score'}
+                      </span>
+                      <span className="text-lg font-black text-emerald-700 dark:text-emerald-300 font-mono">
+                        {avgScore}%
+                      </span>
+                    </div>
+                    <Gauge size={18} className="text-emerald-600 dark:text-emerald-400" />
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/80 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-rose-700 dark:text-rose-300 uppercase tracking-wider block">
+                        {isTh ? 'เกณฑ์ความสูง Civil PE' : 'Active Civil PE Trigger'}
+                      </span>
+                      <span className="text-xs font-black text-rose-800 dark:text-rose-200 font-mono">
+                        Height ≥{scaffoldFactorConfig.peHeightThresholdM}m · Drop {scaffoldFactorConfig.minDropZoneClearanceM}m
+                      </span>
+                    </div>
+                    <ShieldCheck size={18} className="text-rose-600 dark:text-rose-400" />
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-teal-50/70 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-800/80 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-teal-700 dark:text-teal-300 uppercase tracking-wider block">
+                        {isTh ? 'ประหยัดค่าเช่าคาดการณ์' : 'Est. Batch Rental Saving'}
+                      </span>
+                      <span className="text-lg font-black text-teal-700 dark:text-teal-300 font-mono">
+                        ฿{totalBatchSavingThb.toLocaleString()}
+                      </span>
+                    </div>
+                    <TrendingDown size={18} className="text-teal-600 dark:text-teal-400" />
+                  </div>
+                </div>
+
+                {/* Simulation Table */}
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 text-[11px] uppercase tracking-wider font-semibold border-b border-slate-200 dark:border-slate-800">
+                      <tr>
+                        <th className="p-3 w-10 text-center">{isTh ? 'เลือก' : 'Apply'}</th>
+                        <th className="p-3">{isTh ? 'รหัสใบงาน / Tag' : 'SF No. / Tag'}</th>
+                        <th className="p-3">{isTh ? 'ปริมาตร / ความสูง' : 'Volume / Height'}</th>
+                        <th className="p-3">{isTh ? 'ผู้รับเหมาที่แนะนำ (ปรับเลือกได้)' : 'Matched Contractor'}</th>
+                        <th className="p-3">{isTh ? 'รอบเช่าแนะนำ' : 'Hire Window'}</th>
+                        <th className="p-3">{isTh ? 'คะแนนรวม' : 'Score'}</th>
+                        <th className="p-3">{isTh ? 'ประหยัดงบ' : 'Est. Saving'}</th>
+                        <th className="p-3">{isTh ? 'เหตุผลการวิเคราะห์' : 'Factor Rationale'}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {scaffoldSimulationRows.map(row => {
+                        const isChecked = scaffoldSimSelectedIds[row.job.id] !== false;
+                        return (
+                          <tr
+                            key={row.job.id}
+                            className={
+                              isChecked
+                                ? 'bg-cyan-50/20 dark:bg-cyan-950/15 hover:bg-cyan-50/40 dark:hover:bg-cyan-950/25'
+                                : 'opacity-60 bg-slate-50/30 dark:bg-slate-900/40'
+                            }
+                          >
+                            <td className="p-3 text-center">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={e =>
+                                  setScaffoldSimSelectedIds(prev => ({
+                                    ...prev,
+                                    [row.job.id]: e.target.checked
+                                  }))
+                                }
+                                className="rounded text-cyan-600 focus:ring-cyan-500 cursor-pointer"
+                              />
+                            </td>
+                            <td className="p-3">
+                              <div className="font-mono font-bold text-slate-900 dark:text-white">
+                                {row.job.jobId || row.job.id} · {row.job.equipmentTag}
+                              </div>
+                              <div className="text-[10px] text-slate-500 truncate max-w-[180px]">
+                                {row.job.locationArea}
+                              </div>
+                            </td>
+                            <td className="p-3 font-mono">
+                              <span className="font-bold text-slate-800 dark:text-slate-200">{row.volumeM3} m³</span> ({row.height}m)
+                              {row.needsPE && (
+                                <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300">
+                                  PE
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-3">
+                              <select
+                                value={row.recommendedContractor}
+                                onChange={e =>
+                                  setScaffoldSimCustomContractor(prev => ({
+                                    ...prev,
+                                    [row.job.id]: e.target.value as ContractorCompanyType
+                                  }))
+                                }
+                                className="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white"
+                              >
+                                {row.eligibleContractors.map(c => (
+                                  <option key={c.company} value={c.company}>
+                                    {c.company} — {c.score}%
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="p-3 font-mono">
+                              <span className="font-bold text-slate-800 dark:text-slate-200">{row.recommendedHirePeriod}</span>
+                              {row.shouldTrimPeriod && (
+                                <span className="block text-[9px] font-bold text-emerald-600 dark:text-emerald-400">
+                                  {isTh ? 'ลดจาก 30 วัน' : 'Trimmed from 30d'}
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-3">
+                              <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
+                                {row.score}%
+                              </span>
+                              <div className="w-20 h-1.5 rounded-full overflow-hidden flex bg-slate-200 dark:bg-slate-700 mt-1">
+                                <div style={{ width: `${row.breakdown.pePts}%` }} className="bg-rose-500" />
+                                <div style={{ width: `${row.breakdown.econPts}%` }} className="bg-emerald-500" />
+                                <div style={{ width: `${row.breakdown.sharedPts}%` }} className="bg-cyan-500" />
+                                <div style={{ width: `${row.breakdown.crewPts}%` }} className="bg-amber-500" />
+                              </div>
+                            </td>
+                            <td className="p-3 font-mono font-bold text-teal-600 dark:text-teal-400">
+                              ฿{row.estSavingThb.toLocaleString()}
+                            </td>
+                            <td className="p-3 text-[11px] text-slate-600 dark:text-slate-400 max-w-xs">
+                              {row.reason}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <span className="text-xs text-slate-500">
+                  {isTh
+                    ? `เลือกยืนยัน ${selectedRows.length} จาก ${scaffoldSimulationRows.length} ใบงาน`
+                    : `Selected ${selectedRows.length} of ${scaffoldSimulationRows.length} scaffolding jobs`}
+                </span>
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowScaffoldSimModal(false)}
+                    className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                  >
+                    {isTh ? 'ยกเลิก' : 'Cancel'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedRows.length === 0}
+                    onClick={handleConfirmScaffoldAutoOptimization}
+                    className="px-5 py-2.5 bg-gradient-to-r from-cyan-700 to-teal-600 hover:from-cyan-800 hover:to-teal-700 disabled:opacity-50 text-white rounded-xl text-xs font-black transition-all shadow-md active:scale-95 cursor-pointer flex items-center gap-2"
+                  >
+                    <Sparkles size={14} />
+                    <span>
+                      {isTh
+                        ? `ยืนยันผลจัดสรรจำลอง (${selectedRows.length} งาน)`
+                        : `Apply Simulation (${selectedRows.length} Jobs)`}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

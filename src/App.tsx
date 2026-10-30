@@ -352,6 +352,7 @@ function AppContent() {
             <ScaffoldingSF02RequestsList
               onNavigateToCreate={() => setActiveView('scaffold-create')}
               globalPlantFilter={selectedPlantFilter}
+              initialViewMode={activeView === 'scaffold-calendar' ? 'calendar' : activeView === 'scaffold-plan' ? 'plot-plan' : 'table'}
             />
           )}
           {activeView === 'scaffold-optimize' && (
@@ -403,18 +404,24 @@ function AppContent() {
               }}
             />
           )}
-          {activeView === 'user-config' && <UserConfig />}
-          {(activeView === 'job-location-turnover' || activeView === 'job-location' || activeView === 'job-location-workspace' || activeView === 'job-location-create' || activeView === 'job-location-settings' || activeView === 'job-location-dashboard' || activeView === 'to-dashboard' || activeView === 'executive-dashboard' || activeView === 'executive-critical-path' || activeView === 'executive-unit-funnel') && (
+          {(activeView === 'user-config' || activeView === 'job-location-settings') && (
+            <UserConfig
+              globalPlantFilter={selectedPlantFilter}
+              onPlantFilterChange={setSelectedPlantFilter}
+              onNavigateToFunctionalLocation={() => setActiveView('functional-location')}
+              onNavigateToMasterPlotPlan={() => setActiveView('master')}
+              initialTab={activeView === 'job-location-settings' ? 'plant-role-settings' : 'users'}
+            />
+          )}
+          {(activeView === 'job-location-turnover' || activeView === 'job-location' || activeView === 'job-location-workspace' || activeView === 'job-location-create' || activeView === 'job-location-dashboard' || activeView === 'to-dashboard' || activeView === 'executive-dashboard' || activeView === 'executive-critical-path' || activeView === 'executive-unit-funnel') && (
             <JobLocationTurnoverPrototype
               key={activeView === 'job-location-create' ? 'create' : 'turnover-other'}
               initialMainView={
                 activeView === 'job-location-create'
                   ? 'create'
-                  : activeView === 'job-location-settings'
-                    ? 'settings'
-                    : activeView === 'job-location-workspace' || activeView === 'job-location-turnover' || activeView === 'job-location'
-                      ? 'workspace'
-                      : 'dashboard'
+                  : activeView === 'job-location-workspace' || activeView === 'job-location-turnover' || activeView === 'job-location'
+                    ? 'workspace'
+                    : 'dashboard'
               }
               initialDashboardSubTab={
                 activeView === 'executive-critical-path'
@@ -442,9 +449,10 @@ function AppContent() {
               }}
             />
           )}
-          {(activeView === 'job-location-dashboard-v2' || activeView === 'to-dashboard-v2') && (
+          {(activeView === 'job-location-dashboard-v2' || activeView === 'to-dashboard-v2' || activeView === 'turnover-cp-closing') && (
             <TurnoverDashboardV2
               globalPlantFilter={selectedPlantFilter}
+              initialDashboardTab={activeView === 'turnover-cp-closing' ? 'cp-closing' : 'handover'}
               onBackToV1={() => setActiveView('job-location-dashboard')}
               onNavigateToWorkspace={(jobId, tab, subTab) => {
                 if (tab) setWorkspaceInitialTab(tab);
@@ -499,7 +507,7 @@ function AppContent() {
               onNavigateToFunctionalLocation={() => setActiveView('functional-location')}
             />
           )}
-          {activeView === 'optimize' && (
+          {(activeView === 'optimize' || activeView === 'crane-cost-dashboard') && (
             <ReviewPlanOptimize
               globalPlantFilter={selectedPlantFilter}
               jobs={planningJobs}
@@ -509,6 +517,7 @@ function AppContent() {
               onSelectMarkingLocation={() => setActiveView('planning-dashboard')}
               onNavigateToDashboard={() => setActiveView('planning-dashboard')}
               isScaffolding={false}
+              defaultMode={activeView === 'crane-cost-dashboard' ? 'cost-saving' : 'engineering'}
             />
           )}
           {activeView === 'optimize-v2' && (

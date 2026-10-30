@@ -87,6 +87,7 @@ import BulkCranePermitModal from './BulkCranePermitModal';
 import BulkTurnoverJobIngestion from './bulk/BulkTurnoverJobIngestion';
 import DigitalSignaturePad from './DigitalSignaturePad';
 import PlotPlanPinningSection, { PinData, ScaleBlockData } from './common/PlotPlanPinningSection';
+import TurnoverCpClosingDashboard from './TurnoverCpClosingDashboard';
 import { useLanguage } from '../context/LanguageContext';
 import { usePlantTurnShared, TurnoverEventRecord } from '../context/PlantTurnSharedContext';
 const NOT_ACCEPT_OTHER = '__other__';
@@ -100,17 +101,123 @@ const DEFAULT_SIGNER_ROLES = [
 ];
 const NOT_ACCEPT_PRESET_TYPES = [
   { value: 'Flange Leaks / Gasket', th: 'หน้าแปลนรั่ว / ประเก็น (Flange Leaks)' },
+  { value: 'Tube Bundle Eddy Current / Plugging', th: 'ท่อ Condenser บางเกินเกณฑ์ ECT / ต้องอุดปลั๊ก (Tube Plugging)' },
+  { value: 'Tube-to-Tubesheet Expansion & Seal Weld', th: 'งานคว้านอัดขยายท่อและแนวเชื่อมหน้าจานท่อ (Tube Expansion / Butt Weld)' },
+  { value: 'Piping Butt Weld NDT (RT/PT) Hold', th: 'รอผลตรวจสอบแนวเชื่อมชน Butt Joint NDT (RT/PT)' },
+  { value: 'Condenser Shell / Channel Hydrotest Weep', th: 'พบรอยซึมขณะอัดน้ำทดสอบแรงดัน (Hydrotest Weep)' },
   { value: 'Missing Safety Guard', th: 'การ์ดป้องกันหลุดหาย (Missing Safety Guard)' },
   { value: 'Touch-up Painting', th: 'งานซ่อมสีป้องกันสนิม (Touch-up Painting)' },
   { value: 'Calibration', th: 'การสอบเทียบเครื่องมือวัด (Calibration)' },
   { value: 'Grounding Detached', th: 'สายดินหลุด / ไม่แน่น (Grounding Detached)' },
 ];
+
+export interface RetubingPunchButtPreset {
+  id: string;
+  itemType: 'Punch' | 'Butt';
+  category: 'A' | 'B' | 'C' | 'S';
+  discipline: string;
+  contractor: string;
+  locationRef: string;
+  testMethod: string;
+  titleEn: string;
+  titleTh: string;
+  remedialEn: string;
+  remedialTh: string;
+  photoRequired: boolean;
+}
+
+const RETUBING_PUNCH_BUTT_PRESETS: RetubingPunchButtPreset[] = [
+  {
+    id: 'preset-ect-plug',
+    itemType: 'Punch',
+    category: 'A',
+    discipline: 'M - Mechanical',
+    contractor: 'BCP Maintenance Team (ฝ่ายซ่อมบำรุงโรงกลั่น)',
+    locationRef: 'Tube Bundle Pass 2 (Row 14 Col 08-12)',
+    testMethod: 'Eddy Current (ECT) & Pneumatic Shell Test',
+    titleEn: 'Condenser Tube Wall Loss >60% — Tapered Plugging & Seal Weld',
+    titleTh: 'ท่อแลกเปลี่ยนความร้อนสึกหรอเกิน 60% จากผล ECT ต้องตอกปลั๊กอุดและเชื่อมปิด',
+    remedialEn: 'Install SS316L tapered mechanical plugs on tubes exceeding 60% wall loss per Eddy Current mapping and verify zero leakage under 1.5 barg pneumatic shell test.',
+    remedialTh: 'ติดตั้งปลั๊กอุดท่อ SS316L ในแถวท่อที่ความหนาบางเกิน 60% ตามผลตรวจ Eddy Current พร้อมเชื่อม Seal Weld และทดสอบอัดอากาศฝั่ง Shell',
+    photoRequired: true
+  },
+  {
+    id: 'preset-butt-expansion',
+    itemType: 'Butt',
+    category: 'A',
+    discipline: 'M - Mechanical',
+    contractor: 'Rotary Engineering Co., Ltd.',
+    locationRef: 'Stationary & Floating Tubesheet (Tube Zone A/B)',
+    testMethod: 'Hydraulic Roller Expansion & Dye Penetrant (PT)',
+    titleEn: 'Re-tubing Tube-to-Tubesheet Roller Expansion & Butt Seal Weld',
+    titleTh: 'งานสอดท่อใหม่ (Re-tubing) คว้านอัดขยายท่อเข้ากับหน้าจาน Tubesheet และตรวจ PT',
+    remedialEn: 'Complete re-tubing of SA-214 condenser tubes, execute controlled torque roller expansion (3-5% wall reduction), and perform 100% PT on tube-to-tubesheet seal welds.',
+    remedialTh: 'ดำเนินการสอดท่อ Condenser ใหม่ คว้านอัดขยายท่อด้วยเครื่องควบคุมแรงบิด (ลดความหนาผนัง 3-5%) และตรวจเช็กแนวเชื่อมด้วย PT 100%',
+    photoRequired: true
+  },
+  {
+    id: 'preset-flange-torque',
+    itemType: 'Punch',
+    category: 'A',
+    discipline: 'M - Mechanical',
+    contractor: 'Rotary Engineering Co., Ltd.',
+    locationRef: 'Channel Cover & Suction Nozzle N1 Flange #4',
+    testMethod: 'Calibrated Hydraulic Bolt Torque (280 Nm)',
+    titleEn: 'Channel Head / Nozzle Flange Spiral Gasket & Cross-Pattern Torque',
+    titleTh: 'เปลี่ยนปะเก็นเกลียว (Spiral Wound Gasket) และขันทอร์กน็อตหน้าแปลนตามลำดับ',
+    remedialEn: 'Replace damaged 316SS/Graphite spiral wound gasket, apply nickel anti-seize thread lubricant, and execute 3-pass cross-pattern bolt torquing to 280 Nm.',
+    remedialTh: 'เปลี่ยนปะเก็น Spiral Wound 316SS/Graphite ใหม่ ทาสารหล่อลื่นเกลียว และขันกวดน็อตแบบไขว้ 3 รอบที่ค่าแรงบิด 280 Nm พร้อมติดป้าย Flange Police',
+    photoRequired: true
+  },
+  {
+    id: 'preset-butt-weld-ndt',
+    itemType: 'Butt',
+    category: 'B',
+    discipline: 'M - Mechanical',
+    contractor: 'Toyo-Thai Corporation',
+    locationRef: 'Overhead Vapor Tie-in Spool Butt Joint BW-104 (16" Sch40)',
+    testMethod: '100% Radiography (RT) & PWHT Hardness Check',
+    titleEn: 'Piping Spool Butt Joint Welding, 100% RT Film & Hydrotest Hold',
+    titleTh: 'งานเชื่อมชนท่อ (Butt Joint Weld) ตรวจฟิล์ม RT 100% และรอทดสอบแรงดันน้ำ',
+    remedialEn: 'Complete root GTAW / fill SMAW on 16" overhead line butt weld BW-104, clear 100% RT film inspection per ASME B31.3, and sign off weld map register.',
+    remedialTh: 'เชื่อมประกอบรอยต่อชน (Butt Joint) ท่อเฮดเดอร์ 16 นิ้ว BW-104 ตรวจสอบฟิล์มเอกซเรย์ RT 100% ตามมาตรฐาน ASME B31.3 และบันทึกแผนผังแนวเชื่อม',
+    photoRequired: true
+  },
+  {
+    id: 'preset-partition-fme',
+    itemType: 'Punch',
+    category: 'A',
+    discipline: 'M - Mechanical',
+    contractor: 'CR3 (Thailand) Co., Ltd.',
+    locationRef: 'Condenser Channel Pass Partition Plate & Baffle Space',
+    testMethod: 'Video Borescope & FME Final Sweep',
+    titleEn: 'Pass Partition Gasket Groove Seating & Internal Borescope FME Sweep',
+    titleTh: 'ตรวจสอบร่องปะเก็นแผ่นกั้น Pass Partition และส่องกล้อง Borescope ตรวจสิ่งแปลกปลอม',
+    remedialEn: 'Clean pass partition gasket seating groove to bare metal, verify baffle tie-rod lock nuts, and complete video borescope FME clearance before shell box-up.',
+    remedialTh: 'ขัดทำความสะอาดร่องรับปะเก็นแผ่นกั้นช่องทางไหล ตรวจสอบน็อตล็อกแกนยึด Baffle และส่องกล้อง Borescope ยืนยันปลอดสิ่งแปลกปลอม (FME) ก่อนปิดฝาครอบ',
+    photoRequired: true
+  },
+  {
+    id: 'preset-butt-deblind-insul',
+    itemType: 'Butt',
+    category: 'C',
+    discipline: 'Other',
+    contractor: 'Dextra Manufacturing Co., Ltd.',
+    locationRef: 'Condenser Shell Body & Nozzle Necks (N1/N2/N3)',
+    testMethod: 'DFT Coating Check & Thermal Cladding',
+    titleEn: 'Post-Hydrotest Thermal Insulation Jacket & Touch-up Painting Carry-over',
+    titleTh: 'งานหุ้มฉนวนกันความร้อนและซ่อมสีภายหลังการอัดน้ำทดสอบแรงดัน (Butt Carry-over)',
+    remedialEn: 'Apply epoxy primer touch-up on shell saddle supports and reinstall aluminum weather cladding over nozzle necks after hydrotest sign-off.',
+    remedialTh: 'ทาสีรองพื้น Epoxy ซ่อมจุดที่ถลอกบริเวณฐานรองรับ และประกอบแผ่นหุ้มฉนวนอะลูมิเนียมกลับคืนหลังผ่านการทดสอบแรงดันน้ำ (Hydrotest)',
+    photoRequired: false
+  }
+];
 import { isPunchItemOpen as sharedIsPunchItemOpen, getAcceptanceStatus as sharedGetAcceptanceStatus } from '../utils/turnoverRules';
 
 // Types
-export type MainViewTab = 'create' | 'workspace' | 'dashboard' | 'settings';
-export type WorkspaceTab = 'detail' | 'turnover';
-export type TurnoverSubTab = 'sign' | 'punchlist';
+export type MainViewTab = 'create' | 'workspace' | 'dashboard' | 'settings' | 'cp-closing';
+export type WorkspaceTab = 'detail' | 'turnover' | 'cp-closing';
+export type TurnoverSubTab = 'sign' | 'punchlist' | 'cp-closing';
 export type PunchCategory = 'A' | 'B' | 'C' | 'S';
 export type PunchOrButtType = 'Punch' | 'Butt';
 export type PunchStatus = 'Open' | 'In Progress' | 'Resolved' | 'Cancel' | 'Closed';
@@ -124,6 +231,9 @@ export interface PunchItem {
   item?: string;
   itemType?: PunchOrButtType; // 'Punch' | 'Butt'
   type?: string;
+  locationRef?: string; // e.g. Tube R14-C08 / Butt Joint BW-104 / Nozzle N1
+  testMethod?: string; // e.g. ECT / Hydrotest / RT / PT / Bolt Torque
+  defectPhotoUrl?: string;
   category?: string;
   punchCategory?: string;
   punchStatus?: string;
@@ -473,7 +583,7 @@ const INITIAL_JOBS: JobRecord[] = [
 
 export interface JobLocationTurnoverPrototypeProps {
   initialMainView?: MainViewTab;
-  initialDashboardSubTab?: 'overview' | 'critical-path' | 'unit-funnel';
+  initialDashboardSubTab?: 'overview' | 'critical-path' | 'unit-funnel' | 'cp-closing';
   initialWorkspaceTab?: WorkspaceTab;
   initialTurnoverSubTab?: TurnoverSubTab;
   globalPlantFilter?: 'All' | 'Phra Khanong' | 'Sriracha';
@@ -574,7 +684,7 @@ export default function JobLocationTurnoverPrototype({
     logActivity
   } = usePlantTurnShared();
   const [activeMainView, setActiveMainView] = useState<MainViewTab>(initialMainView || 'create');
-  const [executiveSubTab, setExecutiveSubTab] = useState<'overview' | 'critical-path' | 'unit-funnel'>(initialDashboardSubTab || 'overview');
+  const [executiveSubTab, setExecutiveSubTab] = useState<'overview' | 'critical-path' | 'unit-funnel' | 'cp-closing'>(initialDashboardSubTab || 'overview');
 
   useEffect(() => {
     if (initialMainView) {
@@ -1025,9 +1135,11 @@ export default function JobLocationTurnoverPrototype({
   const [rejectionReason, setRejectionReason] = useState('');
 
   // TAM Not Accept Punch/Butt creation form fields
-  const [notAcceptItemType] = useState<'Punch' | 'Butt'>('Punch'); // Always Punch List
+  const [notAcceptItemType, setNotAcceptItemType] = useState<'Punch' | 'Butt'>('Punch');
   const [notAcceptPunchChoice, setNotAcceptPunchChoice] = useState<string>('');
   const [notAcceptRemedialWorks, setNotAcceptRemedialWorks] = useState('');
+  const [notAcceptLocationRef, setNotAcceptLocationRef] = useState('');
+  const [notAcceptTestMethod, setNotAcceptTestMethod] = useState('Visual / Field Walkdown');
 
   // Options for the Punch List dropdown = Punch List entries / Not-Accept remarks users have previously keyed
   const previousPunchReasons = useMemo(() => {
@@ -1051,14 +1163,41 @@ export default function JobLocationTurnoverPrototype({
   const [notAcceptCategory, setNotAcceptCategory] = useState<PunchCategory>('A');
   const [notAcceptPlannedDate, setNotAcceptPlannedDate] = useState(() => new Date(Date.now() + 86400000 * 3).toISOString().slice(0, 10));
 
-  // Tab 2: Punch List Modal / Add Item Form State
+  // Tab 2: Job Punch & Butt List Modal / Inline Form / Filter State
   const [isAddPunchModalOpen, setIsAddPunchModalOpen] = useState(false);
+  const [addPunchModalMode, setAddPunchModalMode] = useState<'single' | 'template'>('single');
+  const [editingPunchItemId, setEditingPunchItemId] = useState<string | null>(null);
   const [newPunchItemType, setNewPunchItemType] = useState<'Punch' | 'Butt'>('Punch');
+  const [newPunchPresetId, setNewPunchPresetId] = useState<string>('');
+  const [newPunchLocationRef, setNewPunchLocationRef] = useState<string>('');
+  const [newPunchTestMethod, setNewPunchTestMethod] = useState<string>('Eddy Current (ECT) / Visual');
   const [newPunchRemedialWorks, setNewPunchRemedialWorks] = useState('');
   const [newPunchDiscipline, setNewPunchDiscipline] = useState('M - Mechanical');
   const [newPunchContractor, setNewPunchContractor] = useState('BCP Maintenance Team (ฝ่ายซ่อมบำรุงโรงกลั่น)');
   const [newPunchCategory, setNewPunchCategory] = useState<PunchCategory>('A');
   const [newPunchPlannedDate, setNewPunchPlannedDate] = useState(() => new Date(Date.now() + 86400000 * 3).toISOString().slice(0, 10));
+  const [newPunchReportedBy, setNewPunchReportedBy] = useState('Somchai Prasert (Lead Mech / QA)');
+  const [newPunchPhotoRequired, setNewPunchPhotoRequired] = useState<boolean>(true);
+  const [newPunchDefectPhotoUrl, setNewPunchDefectPhotoUrl] = useState<string | null>(null);
+  const newPunchPhotoInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Batch Template Selection for Inspection & Re-tubing
+  const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>(['preset-ect-plug', 'preset-butt-expansion']);
+
+  // Inline Quick-Add Bar State in Job Punch & Butt List Tab
+  const [isInlineQuickAddOpen, setIsInlineQuickAddOpen] = useState<boolean>(true);
+
+  // Job Punch & Butt List Table Filter & Search State
+  const [jobPunchTypeFilter, setJobPunchTypeFilter] = useState<'All' | 'Punch' | 'Butt'>('All');
+  const [jobPunchCatFilter, setJobPunchCatFilter] = useState<'All' | 'A' | 'B' | 'C' | 'S'>('All');
+  const [jobPunchStatusFilter, setJobPunchStatusFilter] = useState<'All' | 'In Progress' | 'Awaiting Verify' | 'Closed'>('All');
+  const [jobPunchSearch, setJobPunchSearch] = useState<string>('');
+  const [punchActionToast, setPunchActionToast] = useState<string | null>(null);
+
+  const showPunchToast = (msg: string) => {
+    setPunchActionToast(msg);
+    setTimeout(() => setPunchActionToast(null), 4000);
+  };
 
   // Punch Item Actions (Contractor Close & Job Lead Verify)
   const [contractorClosingItem, setContractorClosingItem] = useState<PunchItem | null>(null);
@@ -1100,6 +1239,16 @@ export default function JobLocationTurnoverPrototype({
   useEffect(() => {
     try { localStorage.setItem(SIGNER_ROLES_STORAGE_KEY, JSON.stringify(signerRolesByPlant)); } catch { /* ignore */ }
   }, [signerRolesByPlant]);
+  useEffect(() => {
+    const handleRolesUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail) {
+        setSignerRolesByPlant(customEvent.detail);
+      }
+    };
+    window.addEventListener('turnover_signer_roles_updated', handleRolesUpdated);
+    return () => window.removeEventListener('turnover_signer_roles_updated', handleRolesUpdated);
+  }, []);
   const [isAddingNewRoleModalOpen, setIsAddingNewRoleModalOpen] = useState(false);
   const [newRoleInput, setNewRoleInput] = useState('');
 
@@ -1656,20 +1805,29 @@ export default function JobLocationTurnoverPrototype({
     let newPunchItem: PunchItem | null = null;
     if (signDecision === 'Not Accept') {
       const finalRemedialWorks = notAcceptRemedialWorks.trim() || effectiveRejectionReason;
+      const prefix = notAcceptItemType === 'Butt' ? 'BUTT' : 'PNC';
+      const itemPrefix = notAcceptItemType === 'Butt' ? 'BL' : 'PL';
+      const seqNum = String((currentJob.punchList?.length || 0) + 1).padStart(3, '0');
       newPunchItem = {
-        id: `PB-${Date.now().toString().slice(-6)}`,
+        id: `${prefix}-${Date.now().toString().slice(-5)}`,
+        jobId: currentJob.id,
+        item: `${itemPrefix}-11-${seqNum}`,
         itemType: notAcceptItemType,
+        locationRef: notAcceptLocationRef.trim() || currentJob.assetTag || 'Condenser / Tube Bundle',
+        testMethod: notAcceptTestMethod.trim() || 'Visual / Field Walkdown',
         remedialWorks: finalRemedialWorks,
         discipline: notAcceptDiscipline,
         contractor: notAcceptContractor,
         punchCategory: notAcceptCategory,
         punchStatus: 'In Progress',
         plannedDate: notAcceptPlannedDate,
+        planDate: notAcceptPlannedDate,
         relatedJobId: currentJob.jobNo || currentJob.id,
         relatedAcceptanceId: acceptanceId,
-        type: `${notAcceptItemType}: ${finalRemedialWorks.slice(0, 30)}...`,
+        type: `${notAcceptItemType}: ${finalRemedialWorks.slice(0, 36)}`,
         category: notAcceptCategory,
         description: finalRemedialWorks,
+        defectPhotoUrl: signPhotoUrl || undefined,
         photoRequired: true,
         status: 'Open',
         reportedBy: `${signerName.trim()} (${finalRole})`,
@@ -1714,17 +1872,20 @@ export default function JobLocationTurnoverPrototype({
     setIsReSigning(false);
     setNotAcceptPunchChoice('');
     setRejectionReason('');
+    setNotAcceptLocationRef('');
 
     if (signDecision === 'Not Accept') {
-      alert(isTh
-        ? `บันทึกผล Not Accept และสร้างรายการ ${notAcceptItemType} รหัส ${newPunchItem?.id} เชื่อมโยงกับ Job แล้ว! ท่านสามารถติดตามสถานะการแก้ไขได้ที่แท็บ Punch List`
-        : `Recorded Not Accept and generated punch item ${newPunchItem?.id} linked to this Job! View it under Punch List tab.`
+      showPunchToast(
+        isTh
+          ? `บันทึกผล Not Accept และสร้างรายการ ${notAcceptItemType} รหัส ${newPunchItem?.id} เชื่อมโยงกับ Job แล้ว`
+          : `Recorded Not Accept and generated ${notAcceptItemType} item ${newPunchItem?.id} linked to this Job.`
       );
       setTurnoverSubTab('punchlist');
     } else {
-      alert(isTh
-        ? `บันทึกการส่งมอบระบบ (Accept) เรียบร้อยแล้ว! สถานะอัปเดตเป็น Accepted`
-        : `Turnover accepted successfully! Acceptance status updated to Accepted.`
+      showPunchToast(
+        isTh
+          ? `บันทึกการส่งมอบระบบ (Accept) เรียบร้อยแล้ว! สถานะอัปเดตเป็น Accepted`
+          : `Turnover accepted successfully! Acceptance status updated to Accepted.`
       );
     }
   };
@@ -1738,23 +1899,31 @@ export default function JobLocationTurnoverPrototype({
   const handleCreateNotAcceptAsPunchList = () => {
     const effectiveRejectionReason = rejectionReason.trim() || signComment.trim();
     if (!effectiveRejectionReason) {
-      alert(isTh ? 'กรุณาระบุสาเหตุที่ไม่ยอมรับก่อนสร้างรายการ Punch List' : 'Please enter a rejection reason before creating a punch list.');
+      showPunchToast(isTh ? 'กรุณาระบุสาเหตุที่ไม่ยอมรับก่อนสร้างรายการ Punch / Butt List' : 'Please enter a rejection reason before creating a punch/butt item.');
       return;
     }
 
     const acceptanceId = `ACC-${Date.now().toString().slice(-6)}`;
+    const prefix = notAcceptItemType === 'Butt' ? 'BUTT' : 'PNC';
+    const itemPrefix = notAcceptItemType === 'Butt' ? 'BL' : 'PL';
+    const seqNum = String((currentJob.punchList?.length || 0) + 1).padStart(3, '0');
     const newPunch: PunchItem = {
-      id: `PB-${Date.now().toString().slice(-6)}`,
+      id: `${prefix}-${Date.now().toString().slice(-5)}`,
+      jobId: currentJob.id,
+      item: `${itemPrefix}-11-${seqNum}`,
       itemType: notAcceptItemType,
+      locationRef: notAcceptLocationRef.trim() || currentJob.assetTag || 'Condenser / Tube Bundle',
+      testMethod: notAcceptTestMethod.trim() || 'Visual / Field Walkdown',
       remedialWorks: notAcceptRemedialWorks.trim() || effectiveRejectionReason,
       discipline: notAcceptDiscipline,
       contractor: notAcceptContractor,
       punchCategory: notAcceptCategory,
       punchStatus: 'In Progress',
       plannedDate: notAcceptPlannedDate,
+      planDate: notAcceptPlannedDate,
       relatedJobId: currentJob.jobNo || currentJob.id,
       relatedAcceptanceId: acceptanceId,
-      type: `${notAcceptItemType}: ${(notAcceptRemedialWorks.trim() || effectiveRejectionReason).slice(0, 30)}...`,
+      type: `${notAcceptItemType}: ${(notAcceptRemedialWorks.trim() || effectiveRejectionReason).slice(0, 36)}`,
       category: notAcceptCategory,
       description: notAcceptRemedialWorks.trim() || effectiveRejectionReason,
       photoRequired: true,
@@ -1777,17 +1946,17 @@ export default function JobLocationTurnoverPrototype({
     setNotAcceptPunchChoice('');
     setRejectionReason('');
     setTurnoverSubTab('punchlist');
-    alert(isTh ? `สร้างรายการ ${notAcceptItemType} เรียบร้อยแล้ว!` : `Punch list item created and added to list!`);
+    showPunchToast(isTh ? `สร้างรายการ ${notAcceptItemType} (${newPunch.id}) เรียบร้อยแล้ว!` : `${notAcceptItemType} item (${newPunch.id}) created and added to list!`);
   };
 
   // Contractor Closes Punch / Butt Item
   const handleContractorClosePunch = (item: PunchItem, name: string, closeDate: string, signatureDataUrl?: string) => {
     if (!name.trim()) {
-      alert(isTh ? 'กรุณาระบุชื่อผู้รับเหมาผู้ปิดงาน' : 'Please specify contractor name');
+      showPunchToast(isTh ? 'กรุณาระบุชื่อผู้รับเหมาผู้ปิดงาน' : 'Please specify contractor name');
       return;
     }
     if (!signatureDataUrl) {
-      alert(isTh ? 'กรุณาเซ็นลายเซ็นดิจิทัลเพื่อยืนยันการแจ้งปิดงาน' : 'Please sign to confirm the close-out');
+      showPunchToast(isTh ? 'กรุณาเซ็นลายเซ็นดิจิทัลเพื่อยืนยันการแจ้งปิดงาน' : 'Please sign to confirm the close-out');
       return;
     }
     setJobs(prev => prev.map(j => {
@@ -1812,13 +1981,13 @@ export default function JobLocationTurnoverPrototype({
     }));
     setContractorClosingItem(null);
     setClosePhotoUrl(null);
-    alert(isTh ? 'บันทึกการปิดงานของ Contractor เรียบร้อยแล้ว! อยู่ระหว่างรอ Job Lead ตรวจสอบยืนยัน' : 'Contractor close recorded! Awaiting Job Lead verification.');
+    showPunchToast(isTh ? 'บันทึกการปิดงานของ Contractor เรียบร้อยแล้ว! อยู่ระหว่างรอ Job Lead ตรวจสอบยืนยัน' : 'Contractor close recorded! Awaiting Job Lead verification.');
   };
 
   // Job Lead Verifies Punch / Butt Item
   const handleJobLeadVerifyPunch = (item: PunchItem, leadName: string) => {
     if (!leadName.trim()) {
-      alert(isTh ? 'กรุณาระบุชื่อ Job Lead ผู้ตรวจสอบ' : 'Please specify Job Lead name');
+      showPunchToast(isTh ? 'กรุณาระบุชื่อ Job Lead ผู้ตรวจสอบ' : 'Please specify Job Lead name');
       return;
     }
     const verifyTime = new Date().toISOString().replace('T', ' ').slice(0, 16);
@@ -1862,33 +2031,170 @@ export default function JobLocationTurnoverPrototype({
       return j;
     }));
     setJobLeadVerifyingItem(null);
-    alert(isTh ? 'Job Lead ตรวจสอบและอนุมัติผ่าน (Verified) เรียบร้อยแล้ว! รายการถูกปิด (Closed) สมบูรณ์' : 'Job Lead verified item successfully! Item status is now Closed.');
+    showPunchToast(isTh ? 'Job Lead ตรวจสอบและอนุมัติผ่าน (Verified) เรียบร้อยแล้ว! รายการถูกปิด (Closed) สมบูรณ์' : 'Job Lead verified item successfully! Item status is now Closed.');
   };
 
-  // Tab 2: Add New Punch / Butt Item
+  // Apply Inspection & Re-tubing Preset to New Punch/Butt Form
+  const handleApplyRetubingPreset = (presetId: string) => {
+    setNewPunchPresetId(presetId);
+    const preset = RETUBING_PUNCH_BUTT_PRESETS.find(p => p.id === presetId);
+    if (!preset) return;
+    setNewPunchItemType(preset.itemType);
+    setNewPunchCategory(preset.category);
+    setNewPunchDiscipline(preset.discipline);
+    setNewPunchContractor(preset.contractor);
+    setNewPunchLocationRef(preset.locationRef);
+    setNewPunchTestMethod(preset.testMethod);
+    setNewPunchRemedialWorks(isTh ? preset.remedialTh : preset.remedialEn);
+    setNewPunchPhotoRequired(preset.photoRequired);
+  };
+
+  // Open Add Modal (Single or Template mode)
+  const handleOpenAddPunchButtModal = (defaultType: 'Punch' | 'Butt' = 'Punch', mode: 'single' | 'template' = 'single') => {
+    setEditingPunchItemId(null);
+    setAddPunchModalMode(mode);
+    setNewPunchItemType(defaultType);
+    setNewPunchPresetId('');
+    setNewPunchLocationRef(
+      defaultType === 'Butt'
+        ? 'Stationary Tubesheet Zone A / Spool Butt Weld BW-105'
+        : 'Condenser Tube Bundle Pass 1 / Nozzle Flange N1'
+    );
+    setNewPunchTestMethod(
+      defaultType === 'Butt'
+        ? 'Hydraulic Roller Expansion & 100% PT / RT'
+        : 'Eddy Current (ECT) & Bolt Torque (280 Nm)'
+    );
+    setNewPunchRemedialWorks('');
+    setNewPunchCategory('A');
+    setNewPunchDiscipline('M - Mechanical');
+    setNewPunchContractor('BCP Maintenance Team (ฝ่ายซ่อมบำรุงโรงกลั่น)');
+    setNewPunchPlannedDate(new Date(Date.now() + 86400000 * 3).toISOString().slice(0, 10));
+    setNewPunchReportedBy(`${signerName.trim() || 'Somchai Prasert'} (${signerRole})`);
+    setNewPunchPhotoRequired(true);
+    setNewPunchDefectPhotoUrl(null);
+    setIsAddPunchModalOpen(true);
+  };
+
+  // Open Edit Modal for an existing Punch / Butt Item
+  const handleOpenEditPunchButtModal = (item: PunchItem) => {
+    setEditingPunchItemId(item.id);
+    setAddPunchModalMode('single');
+    setNewPunchItemType(item.itemType === 'Butt' ? 'Butt' : 'Punch');
+    setNewPunchPresetId('');
+    setNewPunchLocationRef(item.locationRef || '');
+    setNewPunchTestMethod(item.testMethod || 'Eddy Current (ECT) / Visual');
+    setNewPunchRemedialWorks(item.remedialWorks || item.description || '');
+    setNewPunchCategory((item.category || item.punchCategory || 'A') as PunchCategory);
+    setNewPunchDiscipline(item.discipline || 'M - Mechanical');
+    setNewPunchContractor(item.contractor || 'BCP Maintenance Team (ฝ่ายซ่อมบำรุงโรงกลั่น)');
+    setNewPunchPlannedDate(item.plannedDate || item.planDate || new Date().toISOString().slice(0, 10));
+    setNewPunchReportedBy(item.reportedBy || `${signerName.trim() || 'Somchai Prasert'} (${signerRole})`);
+    setNewPunchPhotoRequired(item.photoRequired ?? true);
+    setNewPunchDefectPhotoUrl(item.defectPhotoUrl || null);
+    setIsAddPunchModalOpen(true);
+  };
+
+  // Delete a Punch / Butt Item from Current Job
+  const handleDeleteJobPunchItem = (punchId: string) => {
+    setJobs(prev => prev.map(j => {
+      if (j.id === currentJob.id) {
+        return {
+          ...j,
+          punchList: j.punchList.filter(p => p.id !== punchId)
+        };
+      }
+      return j;
+    }));
+    showPunchToast(isTh ? `ลบรายการ ${punchId} ออกจากทะเบียนแล้ว` : `Removed item ${punchId} from Job Punch & Butt List.`);
+  };
+
+  // Upload Defect / Reference Photo for New Punch / Butt Item
+  const handleNewPunchPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setNewPunchDefectPhotoUrl(ev.target?.result as string);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // Tab 2: Add or Update Single Punch / Butt Item (Works from both Inline Form & Modal)
   const handleAddNewPunchItemTab2 = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPunchRemedialWorks.trim()) {
-      alert(isTh ? 'กรุณาระบุรายละเอียดงานแก้ไข (Remedial Works)' : 'Please specify remedial works');
+      showPunchToast(isTh ? 'กรุณาระบุรายละเอียดงานแก้ไขหรือขอบเขตงาน Butt (Remedial Works)' : 'Please specify remedial works / butt description');
       return;
     }
 
+    if (editingPunchItemId) {
+      setJobs(prev => prev.map(j => {
+        if (j.id === currentJob.id) {
+          return {
+            ...j,
+            punchList: j.punchList.map(p => {
+              if (p.id === editingPunchItemId) {
+                return {
+                  ...p,
+                  itemType: newPunchItemType,
+                  locationRef: newPunchLocationRef.trim() || p.locationRef,
+                  testMethod: newPunchTestMethod.trim() || p.testMethod,
+                  remedialWorks: newPunchRemedialWorks.trim(),
+                  description: newPunchRemedialWorks.trim(),
+                  discipline: newPunchDiscipline,
+                  contractor: newPunchContractor,
+                  category: newPunchCategory,
+                  punchCategory: newPunchCategory,
+                  plannedDate: newPunchPlannedDate,
+                  planDate: newPunchPlannedDate,
+                  reportedBy: newPunchReportedBy.trim() || p.reportedBy,
+                  photoRequired: newPunchPhotoRequired,
+                  defectPhotoUrl: newPunchDefectPhotoUrl || p.defectPhotoUrl
+                };
+              }
+              return p;
+            })
+          };
+        }
+        return j;
+      }));
+      setEditingPunchItemId(null);
+      setIsAddPunchModalOpen(false);
+      showPunchToast(isTh ? `อัปเดตรายการ ${editingPunchItemId} สำเร็จ!` : `Updated item ${editingPunchItemId} successfully!`);
+      return;
+    }
+
+    const prefix = newPunchItemType === 'Butt' ? 'BUTT' : 'PNC';
+    const itemPrefix = newPunchItemType === 'Butt' ? 'BL' : 'PL';
+    const seqNum = String((currentJob.punchList?.length || 0) + 1).padStart(3, '0');
+    const selectedPreset = RETUBING_PUNCH_BUTT_PRESETS.find(p => p.id === newPunchPresetId);
+
     const newItem: PunchItem = {
-      id: `PB-${Date.now().toString().slice(-6)}`,
+      id: `${prefix}-${Date.now().toString().slice(-5)}`,
+      jobId: currentJob.id,
+      item: `${itemPrefix}-11-${seqNum}`,
       itemType: newPunchItemType,
+      locationRef: newPunchLocationRef.trim() || currentJob.assetTag || 'Condenser Tube Bundle / Nozzle',
+      testMethod: newPunchTestMethod.trim() || 'Eddy Current (ECT) / Visual',
       remedialWorks: newPunchRemedialWorks.trim(),
       discipline: newPunchDiscipline,
       contractor: newPunchContractor,
       punchCategory: newPunchCategory,
       punchStatus: 'In Progress',
       plannedDate: newPunchPlannedDate,
+      planDate: newPunchPlannedDate,
       relatedJobId: currentJob.jobNo || currentJob.id,
-      type: `${newPunchItemType}: ${newPunchRemedialWorks.trim().slice(0, 30)}...`,
+      type: selectedPreset
+        ? (isTh ? selectedPreset.titleTh : selectedPreset.titleEn)
+        : `${newPunchItemType}: ${newPunchRemedialWorks.trim().slice(0, 36)}`,
       category: newPunchCategory,
       description: newPunchRemedialWorks.trim(),
-      photoRequired: true,
+      defectPhotoUrl: newPunchDefectPhotoUrl || undefined,
+      photoRequired: newPunchPhotoRequired,
       status: 'Open',
-      reportedBy: `${signerName.trim()} (${signerRole})`,
+      reportedBy: newPunchReportedBy.trim() || `${signerName.trim()} (${signerRole})`,
       timestamp: new Date().toISOString().replace('T', ' ').slice(0, 16),
       isContractorClosed: false,
       isVerified: false
@@ -1904,9 +2210,137 @@ export default function JobLocationTurnoverPrototype({
       return j;
     }));
 
+    logActivity(
+      `Add ${newPunchItemType} Item`,
+      'Inspection & Re-tubing Punch/Butt List',
+      `Added ${newItem.itemType} item ${newItem.id} (Cat ${newItem.category}) to ${currentJob.jobNo}`,
+      currentJob.id,
+      currentJob.jobNo
+    );
+
     setNewPunchRemedialWorks('');
+    setNewPunchPresetId('');
+    setNewPunchDefectPhotoUrl(null);
     setIsAddPunchModalOpen(false);
-    alert(isTh ? `เพิ่มรายการ ${newPunchItemType} สำเร็จ!` : `New ${newPunchItemType} item added!`);
+    showPunchToast(
+      isTh
+        ? `✓ เพิ่มรายการ ${newPunchItemType} List (${newItem.id} · Cat ${newItem.category}) เข้าสู่งาน ${currentJob.jobNo} สำเร็จ!`
+        : `✓ Added ${newPunchItemType} List item (${newItem.id} · Cat ${newItem.category}) to ${currentJob.jobNo}!`
+    );
+  };
+
+  // Batch Add Inspection & Re-tubing Templates to Current Job
+  const handleBatchAddRetubingTemplates = () => {
+    const chosenPresets = RETUBING_PUNCH_BUTT_PRESETS.filter(p => selectedTemplateIds.includes(p.id));
+    if (chosenPresets.length === 0) {
+      showPunchToast(isTh ? 'กรุณาเลือกเทมเพลตอย่างน้อย 1 รายการ' : 'Please select at least 1 template');
+      return;
+    }
+
+    const baseLen = currentJob.punchList?.length || 0;
+    const nowTime = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const createdItems: PunchItem[] = chosenPresets.map((preset, idx) => {
+      const prefix = preset.itemType === 'Butt' ? 'BUTT' : 'PNC';
+      const itemPrefix = preset.itemType === 'Butt' ? 'BL' : 'PL';
+      const seqNum = String(baseLen + idx + 1).padStart(3, '0');
+      const desc = isTh ? preset.remedialTh : preset.remedialEn;
+      return {
+        id: `${prefix}-${Date.now().toString().slice(-4)}${idx + 1}`,
+        jobId: currentJob.id,
+        item: `${itemPrefix}-11-${seqNum}`,
+        itemType: preset.itemType,
+        locationRef: preset.locationRef,
+        testMethod: preset.testMethod,
+        remedialWorks: desc,
+        description: desc,
+        type: isTh ? preset.titleTh : preset.titleEn,
+        category: preset.category,
+        punchCategory: preset.category,
+        punchStatus: 'In Progress',
+        discipline: preset.discipline,
+        contractor: preset.contractor,
+        plannedDate: newPunchPlannedDate,
+        planDate: newPunchPlannedDate,
+        relatedJobId: currentJob.jobNo || currentJob.id,
+        photoRequired: preset.photoRequired,
+        status: 'Open',
+        reportedBy: newPunchReportedBy.trim() || `${signerName.trim()} (${signerRole})`,
+        timestamp: nowTime,
+        isContractorClosed: false,
+        isVerified: false
+      };
+    });
+
+    setJobs(prev => prev.map(j => {
+      if (j.id === currentJob.id) {
+        return {
+          ...j,
+          punchList: [...createdItems, ...j.punchList]
+        };
+      }
+      return j;
+    }));
+
+    setIsAddPunchModalOpen(false);
+    showPunchToast(
+      isTh
+        ? `✓ นำเข้าเทมเพลต Punch & Butt List สำหรับงาน Inspection & Re-tubing จำนวน ${createdItems.length} รายการสำเร็จ!`
+        : `✓ Imported ${createdItems.length} Inspection & Re-tubing Punch & Butt List items!`
+    );
+  };
+
+  // Export Current Job's Punch & Butt List to CSV
+  const handleExportJobPunchButtCsv = () => {
+    const q = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const headers = [
+      'Job No',
+      'Job Title',
+      'Equipment Tag',
+      'Punch/Butt ID',
+      'Item Code',
+      'List Type (Punch/Butt)',
+      'Category',
+      'Tube / Weld / Location Ref',
+      'Inspection / NDE Method',
+      'Remedial Works / Scope Description',
+      'Discipline',
+      'Contractor',
+      'Planned Date',
+      'TAM Status',
+      'Contractor Closed By',
+      'Closed Date',
+      'Job Lead Verified By',
+      'Verified Timestamp'
+    ];
+    const rows = (currentJob.punchList || []).map(item => [
+      currentJob.jobNo,
+      currentJob.title,
+      currentJob.assetTag || '',
+      item.id,
+      item.item || '',
+      item.itemType || 'Punch',
+      `Cat ${item.category || item.punchCategory || 'A'}`,
+      item.locationRef || currentJob.assetTag || '',
+      item.testMethod || '',
+      item.remedialWorks || item.description,
+      item.discipline || 'M - Mechanical',
+      item.contractor || 'BCP Maintenance Team',
+      item.plannedDate || item.planDate || '',
+      item.punchStatus || (item.status === 'Resolved' ? 'Closed' : 'In Progress'),
+      item.closedBy || '',
+      item.closedDate || '',
+      item.verifiedBy || '',
+      item.verificationTimestamp || ''
+    ].map(q).join(','));
+
+    const csv = '\uFEFF' + [headers.map(q).join(','), ...rows].join('\r\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${currentJob.jobNo}_Punch_And_Butt_List.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    showPunchToast(isTh ? `ส่งออกไฟล์ ${currentJob.jobNo}_Punch_And_Butt_List.csv เรียบร้อยแล้ว` : `Exported ${currentJob.jobNo}_Punch_And_Butt_List.csv`);
   };
 
   // Handle Add Punch List Item
@@ -3734,7 +4168,7 @@ export default function JobLocationTurnoverPrototype({
 
           {/* Header Card: Job ID & Live Status Badge with Completion Checklist */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 sm:p-6 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
               <div className="space-y-1.5">
                 <div className="flex items-center gap-2.5 flex-wrap">
                   <span className="font-mono text-xs font-black px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
@@ -3756,11 +4190,43 @@ export default function JobLocationTurnoverPrototype({
                   <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
                     {isTh ? 'หน่วยผลิต:' : 'Unit:'} <strong className="text-slate-800 dark:text-slate-200">{(currentJob.unit || '').split(' ')[0] || '-'}</strong>
                   </span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                    {isTh ? 'แท็กอุปกรณ์:' : 'Asset Tag:'} <strong className="font-mono text-teal-700 dark:text-teal-400">{currentJob.assetTag || 'E-1102A/B'}</strong>
+                  </span>
                 </div>
 
                 <h2 className="text-lg sm:text-xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
                   {currentJob.title}
                 </h2>
+              </div>
+
+              {/* Quick Actions: Switch Job & Add Job Punch / Butt List Directly */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <select
+                  value={currentJob.id}
+                  onChange={e => setSelectedJobId(e.target.value)}
+                  className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer max-w-[230px] truncate"
+                  title={isTh ? 'สลับแพ็กเกจงาน (Job Package)' : 'Switch Job Package'}
+                >
+                  {jobs.map(j => (
+                    <option key={j.id} value={j.id}>
+                      {j.jobNo} — {j.title}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWorkspaceTab('turnover');
+                    setTurnoverSubTab('punchlist');
+                    handleOpenAddPunchButtModal('Punch', 'single');
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus size={14} />
+                  <span>{isTh ? '+ เพิ่ม Job Punch & Butt List' : '+ Add Job Punch & Butt'}</span>
+                </button>
               </div>
             </div>
 
@@ -3798,27 +4264,37 @@ export default function JobLocationTurnoverPrototype({
                 </span>
               </div>
 
-              <div className={`p-2.5 rounded-xl border flex items-center gap-2 ${currentJob.punchList.length === 0 || currentJob.punchList.every(p => p.status === 'Resolved')
-                ? 'border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-300'
-                : 'border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/20 text-rose-800 dark:text-rose-300'
-                }`}>
-                {currentJob.punchList.length === 0 || currentJob.punchList.every(p => p.status === 'Resolved') ? (
-                  <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-                ) : (
-                  <AlertTriangle size={16} className="text-rose-600 shrink-0" />
-                )}
-                <span>
-                  {isTh
-                    ? `3. ข้อบกพร่อง: ${currentJob.punchList.filter(p => p.status === 'Open').length === 0 ? 'ปิดหมด (ผ่านเกณฑ์)' : `ค้าง ${currentJob.punchList.filter(p => p.status === 'Open').length} รายการ`}`
-                    : `3. Punch List: ${currentJob.punchList.filter(p => p.status === 'Open').length === 0 ? 'All 0 Open (Clean)' : `${currentJob.punchList.filter(p => p.status === 'Open').length} Open Blocker`}`}
-                </span>
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setWorkspaceTab('turnover');
+                  setTurnoverSubTab('punchlist');
+                }}
+                className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 text-left transition cursor-pointer ${currentJob.punchList.length === 0 || currentJob.punchList.every(p => p.status === 'Resolved')
+                  ? 'border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100/60'
+                  : 'border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/20 text-rose-800 dark:text-rose-300 hover:bg-rose-100/60'
+                  }`}
+              >
+                <div className="flex items-center gap-2">
+                  {currentJob.punchList.length === 0 || currentJob.punchList.every(p => p.status === 'Resolved') ? (
+                    <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertTriangle size={16} className="text-rose-600 shrink-0" />
+                  )}
+                  <span>
+                    {isTh
+                      ? `3. Punch & Butt: ${currentJob.punchList.filter(p => isPunchItemOpen(p)).length === 0 ? 'ปิดหมด (ผ่านเกณฑ์)' : `ค้าง ${currentJob.punchList.filter(p => isPunchItemOpen(p)).length} รายการ (Punch ${currentJob.punchList.filter(p => (p.itemType || 'Punch') === 'Punch').length} / Butt ${currentJob.punchList.filter(p => p.itemType === 'Butt').length})`}`
+                      : `3. Punch & Butt: ${currentJob.punchList.filter(p => isPunchItemOpen(p)).length === 0 ? 'All 0 Open (Clean)' : `${currentJob.punchList.filter(p => isPunchItemOpen(p)).length} Open (${currentJob.punchList.filter(p => (p.itemType || 'Punch') === 'Punch').length} Punch / ${currentJob.punchList.filter(p => p.itemType === 'Butt').length} Butt)`}`}
+                  </span>
+                </div>
+                <ArrowRight size={13} className="shrink-0 opacity-70" />
+              </button>
             </div>
           </div>
 
 
-          {/* ================= STEP 3: 2 MAIN LARGE BUTTONS (TABLET & MOBILE OPTIMIZED) ================= */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+          {/* ================= STEP 3: 3 MAIN LARGE NAVIGATION TABS (DETAIL, TURNOVER, CP CLOSING DASHBOARD) ================= */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
             <button
               type="button"
               onClick={() => setWorkspaceTab('detail')}
@@ -3828,9 +4304,9 @@ export default function JobLocationTurnoverPrototype({
                 }`}
             >
               <div className="flex items-center gap-3.5">
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${workspaceTab === 'detail' ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${workspaceTab === 'detail' ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
                   }`}>
-                  <FileText size={22} />
+                  <FileText size={20} />
                 </div>
                 <div>
                   <span className="text-[10px] font-mono font-bold text-blue-600 dark:text-blue-400 block uppercase">
@@ -3851,16 +4327,19 @@ export default function JobLocationTurnoverPrototype({
 
             <button
               type="button"
-              onClick={() => setWorkspaceTab('turnover')}
-              className={`p-4 sm:p-5 rounded-2xl border-2 transition-all cursor-pointer flex items-center justify-between text-left min-h-[58px] ${workspaceTab === 'turnover'
-                ? 'border-emerald-600 bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-100 shadow-md ring-4 ring-emerald-500/15'
+              onClick={() => {
+                setWorkspaceTab('turnover');
+                if (turnoverSubTab === 'cp-closing') setTurnoverSubTab('sign');
+              }}
+              className={`p-4 sm:p-5 rounded-2xl border-2 transition-all cursor-pointer flex items-center justify-between text-left min-h-[58px] ${workspaceTab === 'turnover' && turnoverSubTab !== 'cp-closing'
+                ? 'border-emerald-600 bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-950 dark:text-blue-100 shadow-md ring-4 ring-emerald-500/15'
                 : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:border-slate-300 hover:bg-slate-50'
                 }`}
             >
               <div className="flex items-center gap-3.5">
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${workspaceTab === 'turnover' ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${workspaceTab === 'turnover' && turnoverSubTab !== 'cp-closing' ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
                   }`}>
-                  <ShieldCheck size={22} />
+                  <ShieldCheck size={20} />
                 </div>
                 <div>
                   <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400 block uppercase">
@@ -3870,14 +4349,44 @@ export default function JobLocationTurnoverPrototype({
                     {isTh ? 'ตรวจรับรองการส่งมอบ (T/O)' : 'Turnover (T/O) Verification'}
                   </span>
                   <span className="text-[11px] text-slate-500 block">
-                    {isTh ? 'ลงนามดิจิทัล 5 บทบาทและจัดการข้อบกพร่อง' : 'Digital signature & punch list resolution'}
+                    {isTh ? 'ลงนามดิจิทัล 5 บทบาทและจัดการ Punch & Butt List' : 'Digital signature & Job Punch / Butt List resolution'}
                   </span>
                 </div>
               </div>
               <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 shrink-0">
                 {isTh
-                  ? `${currentJob.signatures.length}/5 ลงนาม • ค้าง ${currentJob.punchList.filter(p => p.status === 'Open').length}`
-                  : `${currentJob.signatures.length}/5 Signs • ${currentJob.punchList.filter(p => p.status === 'Open').length} Open`}
+                  ? `${currentJob.signatures.length}/5 ลงนาม • ค้าง ${currentJob.punchList.filter(p => isPunchItemOpen(p)).length}`
+                  : `${currentJob.signatures.length}/5 Signs • ${currentJob.punchList.filter(p => isPunchItemOpen(p)).length} Open`}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setWorkspaceTab('cp-closing')}
+              className={`p-4 sm:p-5 rounded-2xl border-2 transition-all cursor-pointer flex items-center justify-between text-left min-h-[58px] ${workspaceTab === 'cp-closing' || (workspaceTab === 'turnover' && turnoverSubTab === 'cp-closing')
+                ? 'border-[#1E3A8A] bg-indigo-50/90 dark:bg-indigo-950/50 text-[#0F172A] dark:text-indigo-100 shadow-md ring-4 ring-blue-600/15'
+                : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:border-slate-300 hover:bg-slate-50'
+                }`}
+            >
+              <div className="flex items-center gap-3.5">
+                <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${workspaceTab === 'cp-closing' || (workspaceTab === 'turnover' && turnoverSubTab === 'cp-closing') ? 'bg-[#002060] text-white shadow-md shadow-blue-900/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                  }`}>
+                  <BarChart3 size={20} />
+                </div>
+                <div>
+                  <span className="text-[10px] font-mono font-bold text-[#1E3A8A] dark:text-sky-400 block uppercase">
+                    {isTh ? 'แดชบอร์ดปิดจุดควบคุม (CP)' : 'SD25 / TA Control Point'}
+                  </span>
+                  <span className="text-sm sm:text-base font-black tracking-tight block">
+                    CP Closing Dashboard
+                  </span>
+                  <span className="text-[11px] text-slate-500 block">
+                    {isTh ? 'สรุป CP Closing แยกตาม Area / Unit / System & Work Scope' : 'Summary Matrix, System Bar, Donut & WS Register'}
+                  </span>
+                </div>
+              </div>
+              <span className="text-xs font-extrabold px-2.5 py-1 rounded-full bg-[#10B981] text-white shrink-0 font-mono">
+                164 CP (100%)
               </span>
             </button>
           </div>
@@ -4155,9 +4664,9 @@ export default function JobLocationTurnoverPrototype({
           {workspaceTab === 'turnover' && (
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden animate-in fade-in duration-200">
 
-              {/* Turnover Sub-tabs Header: "Sign" and "Punch List" */}
+              {/* Turnover Sub-tabs Header: "Sign", "Job Punch & Butt List", and "CP Closing Dashboard" */}
               <div className="p-4 bg-slate-50/80 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-3">
-                <div className="inline-flex rounded-xl bg-slate-200/80 dark:bg-slate-800 p-1">
+                <div className="inline-flex flex-wrap rounded-xl bg-slate-200/80 dark:bg-slate-800 p-1 gap-1">
                   <button
                     type="button"
                     onClick={() => setTurnoverSubTab('sign')}
@@ -4184,21 +4693,61 @@ export default function JobLocationTurnoverPrototype({
                     }`}
                   >
                     <AlertTriangle size={14} />
-                    <span>{isTh ? 'รายการข้อบกพร่อง (Punch List)' : 'Punch List'}</span>
+                    <span>{isTh ? 'รายการ Punch & Butt List' : 'Job Punch & Butt List'}</span>
                     <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
                       currentJob.punchList.filter(p => isPunchItemOpen(p)).length > 0
                         ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
                         : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
                     }`}>
-                      {currentJob.punchList.filter(p => isPunchItemOpen(p)).length}
+                      {currentJob.punchList.length}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setTurnoverSubTab('cp-closing')}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                      turnoverSubTab === 'cp-closing'
+                        ? 'bg-[#002060] text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                    }`}
+                  >
+                    <BarChart3 size={14} />
+                    <span>CP Closing Dashboard</span>
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-[#10B981] text-white font-mono">
+                      164
                     </span>
                   </button>
                 </div>
 
-                <div className="text-xs text-slate-500 font-medium">
-                  {turnoverSubTab === 'sign'
-                    ? (isTh ? 'การตรวจรับและลงนามรับรองการส่งมอบ (Accept / Not Accept)' : 'Handover acceptance verification and digital sign-off')
-                    : (isTh ? 'รายการข้อบกพร่องและงานแก้ไข (TAM Corrective Action Workflow)' : 'Track, close, and verify punch list remedial items')}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-slate-500 font-medium hidden md:inline">
+                    {turnoverSubTab === 'sign'
+                      ? (isTh ? 'การตรวจรับและลงนามรับรองการส่งมอบ (Accept / Not Accept)' : 'Handover acceptance verification and digital sign-off')
+                      : (isTh ? 'ทะเบียนรายการ Punch & Butt List งาน Inspection & Re-tubing' : 'Inspection & Re-tubing Job Punch & Butt List management')}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTurnoverSubTab('punchlist');
+                      handleOpenAddPunchButtModal('Punch', 'single');
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-black transition shadow-2xs flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus size={13} />
+                    <span>{isTh ? 'เพิ่ม Punch' : 'Add Punch'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTurnoverSubTab('punchlist');
+                      handleOpenAddPunchButtModal('Butt', 'single');
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-black transition shadow-2xs flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus size={13} />
+                    <span>{isTh ? 'เพิ่ม Butt' : 'Add Butt'}</span>
+                  </button>
                 </div>
               </div>
 
@@ -4314,29 +4863,77 @@ export default function JobLocationTurnoverPrototype({
                           {/* Conditional Section for NOT ACCEPT: Rejection Reason & TAM Punch/Butt Creation */}
                           {signDecision === 'Not Accept' && (
                             <div className="p-5 rounded-2xl bg-rose-50/80 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/60 space-y-4 animate-in fade-in duration-200">
-                              <div className="flex items-center gap-2 text-rose-800 dark:text-rose-300 text-xs font-bold border-b border-rose-200 dark:border-rose-800/60 pb-2">
-                                <AlertTriangle size={16} />
-                                <span>{isTh ? 'เหตุผลที่ไม่ยอมรับ และข้อมูลสร้างรายการแก้ไข (Punch List)' : 'Rejection Reason & Punch List Creation'}</span>
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-rose-800 dark:text-rose-300 text-xs font-bold border-b border-rose-200 dark:border-rose-800/60 pb-2.5">
+                                <div className="flex items-center gap-2">
+                                  <AlertTriangle size={16} />
+                                  <span>{isTh ? 'เหตุผลที่ไม่ยอมรับ และข้อมูลสร้างรายการแก้ไข (Punch / Butt List)' : 'Rejection Reason & Punch / Butt List Creation'}</span>
+                                </div>
+                                {/* Toggle Punch vs Butt List */}
+                                <div className="inline-flex rounded-xl bg-white dark:bg-slate-900 p-1 border border-rose-200 dark:border-rose-800">
+                                  <button
+                                    type="button"
+                                    onClick={() => setNotAcceptItemType('Punch')}
+                                    className={`px-3 py-1 rounded-lg text-[11px] font-black transition cursor-pointer ${
+                                      notAcceptItemType === 'Punch'
+                                        ? 'bg-amber-500 text-white shadow-2xs'
+                                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                                    }`}
+                                  >
+                                    {isTh ? 'Punch List (ข้อบกพร่อง)' : 'Punch List'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setNotAcceptItemType('Butt')}
+                                    className={`px-3 py-1 rounded-lg text-[11px] font-black transition cursor-pointer ${
+                                      notAcceptItemType === 'Butt'
+                                        ? 'bg-purple-600 text-white shadow-2xs'
+                                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                                    }`}
+                                  >
+                                    {isTh ? 'Butt List (งานเชื่อม/อัดท่อ Re-tubing ค้าง)' : 'Butt List'}
+                                  </button>
+                                </div>
                               </div>
 
-                              {/* Punch List dropdown: previously keyed items first, "Other" to type a new reason */}
+                              {/* Punch / Butt List dropdown: presets & previously keyed items first, "Other" to type a new reason */}
                               <div className="space-y-1.5">
                                 <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                                  {isTh ? 'Punch List (เลือกรายการที่ไม่ยอมรับ) *' : 'Punch List *'}
+                                  {isTh ? `${notAcceptItemType} List (เลือกรายการที่ไม่ยอมรับ หรือเทมเพลต Re-tubing) *` : `${notAcceptItemType} List Preset / Item *`}
                                 </label>
                                 <select
                                   value={notAcceptPunchChoice}
                                   onChange={e => {
                                     const v = e.target.value;
                                     setNotAcceptPunchChoice(v);
+                                    const matchedRetube = RETUBING_PUNCH_BUTT_PRESETS.find(p => (isTh ? p.remedialTh : p.remedialEn) === v);
+                                    if (matchedRetube) {
+                                      setNotAcceptItemType(matchedRetube.itemType);
+                                      setNotAcceptCategory(matchedRetube.category);
+                                      setNotAcceptDiscipline(matchedRetube.discipline);
+                                      setNotAcceptContractor(matchedRetube.contractor);
+                                      setNotAcceptLocationRef(matchedRetube.locationRef);
+                                      setNotAcceptTestMethod(matchedRetube.testMethod);
+                                    }
                                     setRejectionReason(v === NOT_ACCEPT_OTHER ? '' : v);
                                   }}
                                   className="w-full px-3 py-2.5 rounded-xl border border-rose-300 dark:border-rose-800 bg-white dark:bg-slate-900 text-xs font-bold outline-none cursor-pointer focus:ring-2 focus:ring-rose-500/20"
                                 >
-                                  <option value="">{isTh ? '— เลือกรายการ Punch List —' : '— Select a Punch List item —'}</option>
-                                  {NOT_ACCEPT_PRESET_TYPES.map(p => (
-                                    <option key={p.value} value={p.value}>{isTh ? p.th : p.value}</option>
-                                  ))}
+                                  <option value="">{isTh ? '— เลือกรายการ Punch / Butt List —' : '— Select a Punch / Butt List item —'}</option>
+                                  <optgroup label={isTh ? 'เทมเพลตงาน Inspection & Re-tubing (Punch & Butt)' : 'Inspection & Re-tubing Presets'}>
+                                    {RETUBING_PUNCH_BUTT_PRESETS.map(preset => {
+                                      const val = isTh ? preset.remedialTh : preset.remedialEn;
+                                      return (
+                                        <option key={preset.id} value={val}>
+                                          [{preset.itemType} · Cat {preset.category}] {isTh ? preset.titleTh : preset.titleEn}
+                                        </option>
+                                      );
+                                    })}
+                                  </optgroup>
+                                  <optgroup label={isTh ? 'รายการมาตรฐานทั่วไป' : 'Standard Presets'}>
+                                    {NOT_ACCEPT_PRESET_TYPES.map(p => (
+                                      <option key={p.value} value={p.value}>{isTh ? p.th : p.value}</option>
+                                    ))}
+                                  </optgroup>
                                   {previousPunchReasons.filter(r => !NOT_ACCEPT_PRESET_TYPES.some(p => p.value === r)).length > 0 && (
                                     <optgroup label={isTh ? 'รายการที่เคยบันทึก' : 'Previously keyed'}>
                                       {previousPunchReasons.filter(r => !NOT_ACCEPT_PRESET_TYPES.some(p => p.value === r)).map(r => (
@@ -4347,7 +4944,7 @@ export default function JobLocationTurnoverPrototype({
                                   <option value={NOT_ACCEPT_OTHER}>{isTh ? 'อื่นๆ (ระบุข้อความเอง)...' : 'Other (specify)...'}</option>
                                 </select>
                                 <p className="text-[11px] text-slate-500">
-                                  {isTh ? 'รายการที่แสดงคือ Punch List ที่เคยบันทึกไว้ในระบบ' : 'Items shown are Punch List entries previously keyed in the system.'}
+                                  {isTh ? 'สามารถเลือกจากเทมเพลตงาน Inspection & Re-tubing หรือเลือก "อื่นๆ" เพื่อพิมพ์รายละเอียดใหม่' : 'Choose an Inspection & Re-tubing template or select Other to specify custom details.'}
                                 </p>
                               </div>
 
@@ -4363,14 +4960,39 @@ export default function JobLocationTurnoverPrototype({
                                     autoFocus
                                     value={rejectionReason}
                                     onChange={e => setRejectionReason(e.target.value)}
-                                    placeholder={isTh ? 'ระบุเหตุผลที่ไม่ยอมรับ เช่น พบรอยรั่วที่หน้าแปลน, ขาดเอกสารรับรองแรงขัน...' : 'State clearly why handover cannot be accepted...'}
+                                    placeholder={isTh ? 'ระบุเหตุผลที่ไม่ยอมรับ เช่น พบรอยรั่วที่หน้าแปลน, ขาดการอัดขยายท่อ Tube Bundle Pass 2...' : 'State clearly why handover cannot be accepted...'}
                                     className="w-full p-3 rounded-xl border border-rose-300 dark:border-rose-800 bg-white dark:bg-slate-900 text-xs outline-none focus:ring-2 focus:ring-rose-500/20"
                                   />
                                 </div>
                               )}
 
-                              {/* TAM Punch Fields */}
+                              {/* TAM Punch & Butt Fields */}
                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 pt-2">
+                                <div className="space-y-1">
+                                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                    {isTh ? 'ตำแหน่งท่อ / รอยเชื่อม / หน้าแปลน (Tube / Weld Ref)' : 'Tube / Weld / Location Ref'}
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={notAcceptLocationRef}
+                                    onChange={e => setNotAcceptLocationRef(e.target.value)}
+                                    placeholder={isTh ? 'เช่น Pass 2 Row 14 Col 08 / BW-104' : 'e.g. Pass 2 R14-C08 / BW-104'}
+                                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold outline-none"
+                                  />
+                                </div>
+
+                                <div className="space-y-1">
+                                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                    {isTh ? 'วิธีตรวจสอบ (NDE / Test Method)' : 'NDE / Test Method'}
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={notAcceptTestMethod}
+                                    onChange={e => setNotAcceptTestMethod(e.target.value)}
+                                    placeholder={isTh ? 'เช่น Eddy Current (ECT) / Hydrotest / RT' : 'e.g. Eddy Current (ECT) / Hydrotest'}
+                                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold outline-none"
+                                  />
+                                </div>
 
                                 <div className="space-y-1">
                                   <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -4404,16 +5026,17 @@ export default function JobLocationTurnoverPrototype({
 
                                 <div className="space-y-1">
                                   <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                                    {isTh ? 'หมวดหมู่ความเสี่ยง (Punch Category) *' : 'Punch Category *'}
+                                    {isTh ? 'หมวดหมู่ความเสี่ยง (Category) *' : 'Category *'}
                                   </label>
                                   <select
                                     value={notAcceptCategory}
                                     onChange={e => setNotAcceptCategory(e.target.value as PunchCategory)}
                                     className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold outline-none cursor-pointer"
                                   >
-                                    <option value="A">Category A</option>
-                                    <option value="B">Category B</option>
-                                    <option value="C">Category C</option>
+                                    <option value="A">Category A (Pre-Startup Blocker)</option>
+                                    <option value="B">Category B (Before Handover)</option>
+                                    <option value="C">Category C (Minor / Post-Startup)</option>
+                                    <option value="S">Category S (Safety Critical)</option>
                                   </select>
                                 </div>
 
@@ -4428,22 +5051,12 @@ export default function JobLocationTurnoverPrototype({
                                     className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold outline-none"
                                   />
                                 </div>
-
-                                <div className="space-y-1">
-                                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                                    {isTh ? 'สถานะเริ่มต้น (Punch Status)' : 'Initial Punch Status'}
-                                  </label>
-                                  <div className="px-3 py-2 rounded-xl bg-slate-200/80 dark:bg-slate-700 font-bold text-slate-700 dark:text-slate-300 text-xs flex items-center justify-between">
-                                    <span>In Progress</span>
-                                    <span className="text-[10px] text-slate-500 font-normal">Auto</span>
-                                  </div>
-                                </div>
                               </div>
 
                               {/* Remedial Works Details */}
                               <div className="space-y-1">
                                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                                  {isTh ? 'รายละเอียดงานแก้ไข (Remedial Works) *' : 'Remedial Works Description *'}
+                                  {isTh ? 'รายละเอียดงานแก้ไข / งานค้างส่งมอบ (Remedial Works) *' : 'Remedial Works / Butt Scope Description *'}
                                 </label>
                                 <textarea
                                   rows={2}
@@ -4456,6 +5069,8 @@ export default function JobLocationTurnoverPrototype({
 
                               <div className="flex items-center gap-3 text-[11px] text-slate-500 pt-1">
                                 <span>Related Job ID: <strong className="font-mono text-slate-800 dark:text-slate-200">{currentJob.jobNo || currentJob.id}</strong></span>
+                                <span>•</span>
+                                <span>Type: <strong className="font-mono text-slate-800 dark:text-slate-200">{notAcceptItemType} List</strong></span>
                                 <span>•</span>
                                 <span>Related Acceptance ID: <strong className="font-mono text-slate-800 dark:text-slate-200">Auto (ACC-xxxxxx)</strong></span>
                               </div>
@@ -4887,352 +5502,1118 @@ export default function JobLocationTurnoverPrototype({
                   </div>
                 )}
 
-                {/* ================= TAB 2: PUNCH LIST (TAM REQUIREMENTS) ================= */}
-                {turnoverSubTab === 'punchlist' && (
-                  <div className="p-5 sm:p-7 space-y-6">
+                {/* ================= TAB 2: PUNCH & BUTT LIST (INSPECTION & RE-TUBING + TAM WORKFLOW) ================= */}
+                {turnoverSubTab === 'punchlist' && (() => {
+                  const allJobItems = currentJob.punchList || [];
+                  const totalJobItems = allJobItems.length;
+                  const punchCount = allJobItems.filter(p => (p.itemType || 'Punch') === 'Punch').length;
+                  const buttCount = allJobItems.filter(p => p.itemType === 'Butt').length;
+                  const catAOpenCount = allJobItems.filter(p => (p.category || p.punchCategory || 'A') === 'A' && isPunchItemOpen(p)).length;
+                  const catBCSONOpenCount = allJobItems.filter(p => (p.category || p.punchCategory || 'A') !== 'A' && isPunchItemOpen(p)).length;
+                  const contractorClosedCount = allJobItems.filter(p => p.isContractorClosed || !!p.closedBy).length;
+                  const verifiedClosedCount = allJobItems.filter(p => p.isVerified || !!p.verifiedBy || p.status === 'Resolved' || p.punchStatus === 'Closed').length;
 
-                    {/* Punch List Header & Add Item Action */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 gap-3">
-                      <div>
-                        <h4 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                          <AlertTriangle size={17} className="text-amber-500" />
-                          <span>{isTh ? 'รายการข้อบกพร่องและงานแก้ไข (Punch & Butt List)' : 'Job Punch & Butt List'}</span>
-                          <span className="text-xs font-mono font-bold text-slate-400">
-                            ({currentJob.punchList.length} รายการสำหรับ {currentJob.jobNo || currentJob.id})
-                          </span>
-                        </h4>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          {isTh
-                            ? 'กระบวนการ TAM: ผู้รับเหมาแจ้งปิดงาน (Contractor Close) และ Job Lead ตรวจสอบยืนยัน (Job Lead Verify)'
-                            : 'TAM Workflow: Contractor closes remedial works, then Job Lead verifies.'}
-                        </p>
+                  const filteredJobPunchList = allJobItems.filter(item => {
+                    const iType = item.itemType || 'Punch';
+                    const iCat = item.category || item.punchCategory || 'A';
+                    const isClosedByCon = item.isContractorClosed || !!item.closedBy;
+                    const isVer = item.isVerified || !!item.verifiedBy || item.status === 'Resolved' || item.punchStatus === 'Closed';
+
+                    if (jobPunchTypeFilter !== 'All' && iType !== jobPunchTypeFilter) return false;
+                    if (jobPunchCatFilter !== 'All' && iCat !== jobPunchCatFilter) return false;
+                    if (jobPunchStatusFilter === 'Closed' && !isVer) return false;
+                    if (jobPunchStatusFilter === 'Awaiting Verify' && (!isClosedByCon || isVer)) return false;
+                    if (jobPunchStatusFilter === 'In Progress' && (isClosedByCon || isVer)) return false;
+
+                    if (jobPunchSearch.trim()) {
+                      const q = jobPunchSearch.toLowerCase();
+                      const matchId = (item.id || '').toLowerCase().includes(q) || (item.item || '').toLowerCase().includes(q);
+                      const matchDesc = (item.remedialWorks || item.description || '').toLowerCase().includes(q);
+                      const matchLoc = (item.locationRef || '').toLowerCase().includes(q);
+                      const matchTest = (item.testMethod || '').toLowerCase().includes(q);
+                      const matchCon = (item.contractor || '').toLowerCase().includes(q);
+                      if (!matchId && !matchDesc && !matchLoc && !matchTest && !matchCon) return false;
+                    }
+                    return true;
+                  });
+
+                  return (
+                    <div className="p-5 sm:p-7 space-y-5">
+
+                      {/* Action Feedback Toast Banner */}
+                      {punchActionToast && (
+                        <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200 text-xs font-bold flex items-center justify-between gap-3 animate-in fade-in duration-150">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                            <span>{punchActionToast}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setPunchActionToast(null)}
+                            className="text-emerald-700 hover:text-emerald-900 cursor-pointer"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Punch & Butt List Header & Action Toolbar */}
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 gap-3">
+                        <div>
+                          <h4 className="text-sm sm:text-base font-black text-slate-900 dark:text-slate-100 flex items-center gap-2 flex-wrap">
+                            <AlertTriangle size={18} className="text-amber-500" />
+                            <span>{isTh ? 'รายการข้อบกพร่องและงานค้างส่งมอบ (Job Punch & Butt List)' : 'Job Punch & Butt List — Inspection & Re-tubing'}</span>
+                            <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                              {currentJob.jobNo || currentJob.id} · {currentJob.assetTag || 'E-1102A/B'}
+                            </span>
+                          </h4>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {isTh
+                              ? 'เพิ่มรายการ Punch List (ข้อบกพร่องจากการตรวจสอบ ECT/Hydrotest) และ Butt List (งานอัดขยายท่อ Re-tubing / งานเชื่อม Spool ค้างส่งมอบ) พร้อมติดตามการปิดงาน TAM'
+                              : 'Add & manage Punch List (inspection defects) and Butt List (remaining tube expansion, seal weld & spool carry-over works) under TAM workflow.'}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenAddPunchButtModal('Punch', 'single')}
+                            className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Plus size={14} />
+                            <span>{isTh ? '+ เพิ่ม Punch List' : '+ Add Punch Item'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleOpenAddPunchButtModal('Butt', 'single')}
+                            className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-black transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Plus size={14} />
+                            <span>{isTh ? '+ เพิ่ม Butt List' : '+ Add Butt Item'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleOpenAddPunchButtModal('Butt', 'template')}
+                            className="px-3.5 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 text-indigo-800 dark:text-indigo-200 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Sparkles size={14} className="text-indigo-600 dark:text-indigo-400" />
+                            <span>{isTh ? 'เทมเพลต Re-tubing' : 'Re-tubing Templates'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={handleExportJobPunchButtCsv}
+                            className="px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-700 dark:text-slate-200 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Download size={13} />
+                            <span>CSV</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setTurnoverSubTab('sign')}
+                            className="px-3 py-2 rounded-xl border border-teal-200 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/40 hover:bg-teal-100 text-teal-800 dark:text-teal-200 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <PenTool size={13} />
+                            <span>{isTh ? 'ไปที่การลงนาม' : 'Sign Tab'}</span>
+                          </button>
+                        </div>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => setTurnoverSubTab('sign')}
-                        title={isTh ? 'รายการ Punch สร้างจากการเลือก "ไม่ยอมรับ" ในแท็บการลงนามเท่านั้น' : 'Punch items are created only by choosing "Not Accept" in the Sign tab'}
-                        className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition shadow-xs flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
-                      >
-                        <ArrowRight size={14} />
-                        <span>{isTh ? 'ไปที่การลงนาม (Sign Acceptance)' : 'Go to Sign Acceptance'}</span>
-                      </button>
-                    </div>
+                      {/* 4 Summary KPI Cards for Job Punch & Butt List */}
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                        <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                          <div>
+                            <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                              {isTh ? 'รายการทั้งหมด (Total)' : 'Total Punch & Butt'}
+                            </span>
+                            <span className="text-xl font-black text-slate-900 dark:text-slate-100 font-mono">
+                              {totalJobItems}
+                            </span>
+                            <span className="text-[11px] text-slate-500 block mt-0.5">
+                              Punch: <strong className="text-amber-600">{punchCount}</strong> · Butt: <strong className="text-purple-600">{buttCount}</strong>
+                            </span>
+                          </div>
+                          <div className="w-10 h-10 rounded-xl bg-slate-200/70 dark:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200">
+                            <Layers size={18} />
+                          </div>
+                        </div>
 
-                    {/* TAM Critical Rule Guidance Banner */}
-                    <div className="p-4 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 flex items-start gap-3 text-xs text-blue-900 dark:text-blue-200">
-                      <CheckCircle2 size={16} className="text-blue-600 shrink-0 mt-0.5" />
-                      <div>
-                        <strong className="block font-bold mb-0.5">
-                          {isTh ? '📌 กฎระเบียบด้าน Workflow ตามข้อกำหนด TAM:' : '📌 TAM Workflow Integrity Rule:'}
-                        </strong>
-                        <p className="leading-relaxed">
-                          {isTh
-                            ? 'เมื่อรายการ Punch/Butt ได้รับการแก้ไขและ Job Lead ตรวจสอบผ่านแล้ว ระบบจะไม่เปลี่ยนสถานะ Not Accepted เป็น Accepted โดยอัตโนมัติ สถานะจะเปลี่ยนเป็น "Pending Re-Accept" เพื่อให้ผู้มีอำนาจกลับไปที่แท็บ "การลงนาม (Sign)" ดำเนินการตรวจรับซ้ำและลงนามรับรองความพร้อมใหม่'
-                            : 'When punch items are resolved and verified, status is set to "Pending Re-Accept" (never auto-accepted). The authorized user must return to Tab 1 (Sign) to re-evaluate and sign.'}
-                        </p>
+                        <div className="p-3.5 rounded-2xl bg-rose-50/70 dark:bg-rose-950/25 border border-rose-200 dark:border-rose-900/50 flex items-center justify-between">
+                          <div>
+                            <span className="text-[10px] font-bold uppercase text-rose-600 dark:text-rose-400 block">
+                              {isTh ? 'Cat A ค้าง (Blocker)' : 'Open Category A'}
+                            </span>
+                            <span className="text-xl font-black text-rose-700 dark:text-rose-300 font-mono">
+                              {catAOpenCount}
+                            </span>
+                            <span className="text-[11px] text-rose-600/80 dark:text-rose-400 block mt-0.5">
+                              {isTh ? 'ต้องปิดก่อนเริ่มเดินเครื่อง' : 'Pre-startup blocker'}
+                            </span>
+                          </div>
+                          <div className="w-10 h-10 rounded-xl bg-rose-100 dark:bg-rose-900/50 flex items-center justify-center text-rose-600 dark:text-rose-300">
+                            <AlertOctagon size={18} />
+                          </div>
+                        </div>
+
+                        <div className="p-3.5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-900/50 flex items-center justify-between">
+                          <div>
+                            <span className="text-[10px] font-bold uppercase text-amber-700 dark:text-amber-400 block">
+                              {isTh ? 'Cat B / C / S ค้าง' : 'Open Cat B / C / S'}
+                            </span>
+                            <span className="text-xl font-black text-amber-800 dark:text-amber-300 font-mono">
+                              {catBCSONOpenCount}
+                            </span>
+                            <span className="text-[11px] text-amber-700/80 dark:text-amber-400 block mt-0.5">
+                              {isTh ? `ผู้รับเหมาแจ้งปิดแล้ว ${contractorClosedCount}` : `${contractorClosedCount} Contractor closed`}
+                            </span>
+                          </div>
+                          <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center text-amber-600 dark:text-amber-300">
+                            <Wrench size={18} />
+                          </div>
+                        </div>
+
+                        <div className="p-3.5 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/25 border border-emerald-200 dark:border-emerald-900/50 flex items-center justify-between">
+                          <div>
+                            <span className="text-[10px] font-bold uppercase text-emerald-700 dark:text-emerald-400 block">
+                              {isTh ? 'Job Lead ยืนยันแล้ว' : 'Verified & Closed'}
+                            </span>
+                            <span className="text-xl font-black text-emerald-700 dark:text-emerald-300 font-mono">
+                              {verifiedClosedCount}/{totalJobItems}
+                            </span>
+                            <span className="text-[11px] text-emerald-700/80 dark:text-emerald-400 block mt-0.5">
+                              {totalJobItems > 0 ? `${Math.round((verifiedClosedCount / totalJobItems) * 100)}% Complete` : '100% Clean'}
+                            </span>
+                          </div>
+                          <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center text-emerald-600 dark:text-emerald-300">
+                            <CheckCircle2 size={18} />
+                          </div>
+                        </div>
                       </div>
-                    </div>
 
-                    {/* Punch / Butt List Table */}
-                    <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
-                      <table className="w-full text-left text-xs">
-                        <thead className="bg-slate-50 dark:bg-slate-800/80 text-[10px] uppercase font-bold text-slate-500 tracking-wider border-b border-slate-200 dark:border-slate-800">
-                          <tr>
-                            <th className="p-3">Punch/Butt ID</th>
-                            <th className="p-3">ประเภท</th>
-                            <th className="p-3">ความเสี่ยง (Cat)</th>
-                            <th className="p-3">รายละเอียดงานแก้ไข (Remedial Works)</th>
-                            <th className="p-3">Discipline</th>
-                            <th className="p-3">Contractor</th>
-                            <th className="p-3">กำหนดเสร็จ</th>
-                            <th className="p-3">สถานะ (TAM)</th>
-                            <th className="p-3">การปิดงาน (Contractor)</th>
-                            <th className="p-3">การตรวจสอบ (Job Lead)</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
-                          {currentJob.punchList.length > 0 ? (
-                            currentJob.punchList.map((item) => {
-                              const isClosedByContractor = item.isContractorClosed || !!item.closedBy;
-                              const isVerifiedByLead = item.isVerified || !!item.verifiedBy;
+                      {/* Collapsible Inline Quick-Add Form for Inspection & Re-tubing Punch & Butt List */}
+                      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 overflow-hidden">
+                        <div className="px-4 py-3 bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <Plus size={15} className="text-blue-600 dark:text-blue-400" />
+                            <span className="text-xs font-black text-slate-800 dark:text-slate-100">
+                              {isTh
+                                ? 'ฟอร์มบันทึกด่วน: เพิ่มรายการ Job Punch & Butt List (งาน Inspection & Re-tubing)'
+                                : 'Quick-Add Job Punch & Butt Item (Inspection & Re-tubing)'}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setIsInlineQuickAddOpen(!isInlineQuickAddOpen)}
+                            className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
+                          >
+                            <span>{isInlineQuickAddOpen ? (isTh ? 'ซ่อนฟอร์มบันทึกด่วน' : 'Hide Quick-Add') : (isTh ? 'เปิดฟอร์มบันทึกด่วน' : 'Show Quick-Add')}</span>
+                            {isInlineQuickAddOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          </button>
+                        </div>
 
-                              return (
-                                <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                                  {/* Punch / Butt ID */}
-                                  <td className="p-3 font-mono font-bold text-slate-800 dark:text-slate-200">
-                                    {item.id}
-                                  </td>
+                        {isInlineQuickAddOpen && (
+                          <form onSubmit={handleAddNewPunchItemTab2} className="p-4 space-y-3.5 text-xs">
+                            {/* Preset Quick-Fill Strip */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[11px] font-bold text-slate-500">
+                                {isTh ? 'เลือกเทมเพลตด่วน (Re-tubing Preset):' : 'Quick Preset:'}
+                              </span>
+                              {RETUBING_PUNCH_BUTT_PRESETS.map(preset => (
+                                <button
+                                  key={preset.id}
+                                  type="button"
+                                  onClick={() => handleApplyRetubingPreset(preset.id)}
+                                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer flex items-center gap-1 ${
+                                    newPunchPresetId === preset.id
+                                      ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                                      : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-blue-400'
+                                  }`}
+                                >
+                                  <span className={`px-1 rounded text-[9px] font-black ${
+                                    preset.itemType === 'Butt' ? 'bg-purple-100 text-purple-800' : 'bg-amber-100 text-amber-800'
+                                  }`}>
+                                    {preset.itemType}
+                                  </span>
+                                  <span>{isTh ? preset.titleTh : preset.titleEn}</span>
+                                </button>
+                              ))}
+                            </div>
 
-                                  {/* Item Type: Punch or Butt */}
-                                  <td className="p-3">
-                                    <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
-                                      item.itemType === 'Butt'
-                                        ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-200'
-                                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-200'
-                                    }`}>
-                                      {item.itemType || 'Punch'}
-                                    </span>
-                                  </td>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+                              {/* 1. Type: Punch or Butt */}
+                              <div className="space-y-1">
+                                <label className="font-bold text-slate-700 dark:text-slate-300 block">
+                                  {isTh ? 'ประเภท (List Type) *' : 'List Type *'}
+                                </label>
+                                <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-slate-200/70 dark:bg-slate-900 border border-slate-300 dark:border-slate-700">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingPunchItemId(null);
+                                      setNewPunchItemType('Punch');
+                                    }}
+                                    className={`py-1.5 rounded-lg text-[11px] font-black transition cursor-pointer ${
+                                      newPunchItemType === 'Punch'
+                                        ? 'bg-amber-500 text-white shadow-2xs'
+                                        : 'text-slate-600 dark:text-slate-400'
+                                    }`}
+                                  >
+                                    Punch
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingPunchItemId(null);
+                                      setNewPunchItemType('Butt');
+                                    }}
+                                    className={`py-1.5 rounded-lg text-[11px] font-black transition cursor-pointer ${
+                                      newPunchItemType === 'Butt'
+                                        ? 'bg-purple-600 text-white shadow-2xs'
+                                        : 'text-slate-600 dark:text-slate-400'
+                                    }`}
+                                  >
+                                    Butt
+                                  </button>
+                                </div>
+                              </div>
 
-                                  {/* Category A / B / C / S */}
-                                  <td className="p-3 font-bold">
-                                    <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
-                                      item.category === 'A'
-                                        ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                                        : item.category === 'B'
-                                        ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                                        : item.category === 'S'
-                                        ? 'bg-red-100 text-red-800 border border-red-200'
-                                        : 'bg-blue-100 text-blue-800 border border-blue-200'
-                                    }`}>
-                                      Cat {item.category || item.punchCategory || 'A'}
-                                    </span>
-                                  </td>
+                              {/* 2. Category */}
+                              <div className="space-y-1">
+                                <label className="font-bold text-slate-700 dark:text-slate-300 block">
+                                  {isTh ? 'หมวดความเสี่ยง (Cat) *' : 'Category *'}
+                                </label>
+                                <select
+                                  value={newPunchCategory}
+                                  onChange={e => setNewPunchCategory(e.target.value as PunchCategory)}
+                                  className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold outline-none cursor-pointer"
+                                >
+                                  <option value="A">Cat A (Blocker)</option>
+                                  <option value="B">Cat B (Pre-Handover)</option>
+                                  <option value="C">Cat C (Post-Startup)</option>
+                                  <option value="S">Cat S (Safety)</option>
+                                </select>
+                              </div>
 
-                                  {/* Remedial Works */}
-                                  <td className="p-3 text-slate-800 dark:text-slate-200 font-medium max-w-xs">
-                                    {item.remedialWorks || item.description}
-                                  </td>
+                              {/* 3. Location / Tube Row-Col / Butt Weld Joint */}
+                              <div className="space-y-1 lg:col-span-2">
+                                <label className="font-bold text-slate-700 dark:text-slate-300 block">
+                                  {isTh ? 'พิกัดท่อ / รอยเชื่อม / หน้าแปลน (Tube / Weld Ref)' : 'Tube Row-Col / Butt Joint Ref'}
+                                </label>
+                                <input
+                                  type="text"
+                                  value={newPunchLocationRef}
+                                  onChange={e => setNewPunchLocationRef(e.target.value)}
+                                  placeholder={isTh ? 'เช่น Tube Pass 2 R14-C08 / Butt Weld BW-104' : 'e.g. Pass 2 R14-C08 / Weld BW-104'}
+                                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 outline-none"
+                                />
+                              </div>
 
-                                  {/* Discipline */}
-                                  <td className="p-3 text-slate-600 dark:text-slate-300 font-medium">
-                                    {item.discipline || 'M - Mechanical'}
-                                  </td>
+                              {/* 4. Test / Inspection Method */}
+                              <div className="space-y-1">
+                                <label className="font-bold text-slate-700 dark:text-slate-300 block">
+                                  {isTh ? 'วิธีตรวจสอบ (NDE / Test)' : 'NDE / Test Method'}
+                                </label>
+                                <select
+                                  value={newPunchTestMethod}
+                                  onChange={e => setNewPunchTestMethod(e.target.value)}
+                                  className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 outline-none cursor-pointer"
+                                >
+                                  <option value="Eddy Current (ECT) & Shell Hydrotest">Eddy Current (ECT) & Hydrotest</option>
+                                  <option value="Hydraulic Roller Expansion & PT">Tube Roller Expansion & PT</option>
+                                  <option value="100% Radiography (RT) & Holiday Test">100% RT & Holiday Test</option>
+                                  <option value="Hydraulic Bolt Torque (280 Nm)">Hydraulic Bolt Torque</option>
+                                  <option value="Borescope & FME Verification">Borescope & FME Check</option>
+                                  <option value="Visual Walkdown (VT)">Visual Walkdown (VT)</option>
+                                </select>
+                              </div>
 
-                                  {/* Contractor */}
-                                  <td className="p-3 text-slate-600 dark:text-slate-300">
-                                    {item.contractor || 'BCP Maintenance Team'}
-                                  </td>
+                              {/* 5. Planned Date */}
+                              <div className="space-y-1">
+                                <label className="font-bold text-slate-700 dark:text-slate-300 block">
+                                  {isTh ? 'กำหนดเสร็จ (Plan Date)' : 'Planned Date'}
+                                </label>
+                                <input
+                                  type="date"
+                                  value={newPunchPlannedDate}
+                                  onChange={e => setNewPunchPlannedDate(e.target.value)}
+                                  className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 outline-none"
+                                />
+                              </div>
+                            </div>
 
-                                  {/* Planned Date */}
-                                  <td className="p-3 font-mono text-[11px] text-slate-500">
-                                    {item.plannedDate || item.timestamp?.slice(0, 10) || '-'}
-                                  </td>
+                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end">
+                              <div className="lg:col-span-3 space-y-1">
+                                <label className="font-bold text-slate-700 dark:text-slate-300 block">
+                                  {isTh ? 'สาขา (Discipline)' : 'Discipline'}
+                                </label>
+                                <select
+                                  value={newPunchDiscipline}
+                                  onChange={e => setNewPunchDiscipline(e.target.value)}
+                                  className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 outline-none cursor-pointer"
+                                >
+                                  {TAM_DISCIPLINE_OPTIONS.map(d => (
+                                    <option key={d} value={d}>{d}</option>
+                                  ))}
+                                </select>
+                              </div>
 
-                                  {/* Punch Status */}
-                                  <td className="p-3">
-                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                      item.punchStatus === 'Closed' || item.status === 'Resolved' || item.status === 'Closed'
-                                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                                        : item.punchStatus === 'Cancel'
-                                        ? 'bg-slate-200 text-slate-600'
-                                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                                    }`}>
-                                      {item.punchStatus || (item.status === 'Resolved' ? 'Closed' : 'In Progress')}
-                                    </span>
-                                  </td>
+                              <div className="lg:col-span-3 space-y-1">
+                                <label className="font-bold text-slate-700 dark:text-slate-300 block">
+                                  {isTh ? 'ผู้รับเหมา (Contractor)' : 'Contractor'}
+                                </label>
+                                <select
+                                  value={newPunchContractor}
+                                  onChange={e => setNewPunchContractor(e.target.value)}
+                                  className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 outline-none cursor-pointer"
+                                >
+                                  {TAM_CONTRACTOR_OPTIONS.map(c => (
+                                    <option key={c} value={c}>{c}</option>
+                                  ))}
+                                </select>
+                              </div>
 
-                                  {/* Contractor Close Action */}
-                                  <td className="p-3">
-                                    {isClosedByContractor ? (
-                                      <div className="space-y-0.5">
-                                        <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
-                                          <Check size={12} className="stroke-[3]" />
-                                          <span>ปิดงานแล้ว</span>
-                                        </div>
-                                        <div className="text-[10px] text-slate-500">
-                                          {item.closedBy || 'Contractor'}
-                                        </div>
-                                        {item.closedDate && (
-                                          <div className="text-[9px] font-mono text-slate-400">
-                                            {item.closedDate}
-                                          </div>
-                                        )}
-                                      </div>
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setContractorClosingItem(item);
-                                          setContractorCloseDate(new Date().toISOString().slice(0, 10));
-                                        }}
-                                        className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-emerald-100 hover:text-emerald-800 text-slate-700 dark:bg-slate-800 dark:text-slate-300 text-[11px] font-bold transition cursor-pointer"
-                                      >
-                                        แจ้งปิดงาน
-                                      </button>
-                                    )}
-                                  </td>
+                              <div className="lg:col-span-4 space-y-1">
+                                <label className="font-bold text-slate-700 dark:text-slate-300 block">
+                                  {isTh ? 'รายละเอียดข้อบกพร่อง / งานแก้ไข (Remedial Works / Butt Scope) *' : 'Remedial Works / Butt Scope Description *'}
+                                </label>
+                                <input
+                                  type="text"
+                                  required
+                                  value={newPunchRemedialWorks}
+                                  onChange={e => setNewPunchRemedialWorks(e.target.value)}
+                                  placeholder={isTh ? 'ระบุรายละเอียดการอุดท่อ / อัดขยายท่อ Re-tubing / เชื่อม Butt Weld หรือเปลี่ยนปะเก็น...' : 'Describe remedial work or re-tubing butt scope...'}
+                                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 outline-none focus:ring-2 focus:ring-blue-500/20"
+                                />
+                              </div>
 
-                                  {/* Job Lead Verify Action */}
-                                  <td className="p-3">
-                                    {isVerifiedByLead ? (
-                                      <div className="space-y-0.5">
-                                        <div className="flex items-center gap-1 text-[11px] font-bold text-indigo-700 dark:text-indigo-400">
-                                          <CheckCircle2 size={12} />
-                                          <span>Verified</span>
-                                        </div>
-                                        <div className="text-[10px] text-slate-500">
-                                          {item.verifiedBy || 'Job Lead'}
-                                        </div>
-                                        {item.verificationTimestamp && (
-                                          <div className="text-[9px] font-mono text-slate-400">
-                                            {item.verificationTimestamp}
-                                          </div>
-                                        )}
-                                      </div>
-                                    ) : isClosedByContractor ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => setJobLeadVerifyingItem(item)}
-                                        className="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold transition shadow-xs cursor-pointer animate-pulse"
-                                      >
-                                        ตรวจสอบผ่าน
-                                      </button>
-                                    ) : (
-                                      <span className="text-[10px] text-slate-400 italic">
-                                        รอช่างปิดงาน
-                                      </span>
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })
-                          ) : (
+                              <div className="lg:col-span-2 flex items-center gap-2">
+                                <button
+                                  type="submit"
+                                  className={`w-full py-2 px-3 rounded-xl text-white font-black shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                                    newPunchItemType === 'Butt'
+                                      ? 'bg-purple-600 hover:bg-purple-700'
+                                      : 'bg-amber-600 hover:bg-amber-700'
+                                  }`}
+                                >
+                                  <Plus size={14} />
+                                  <span>{isTh ? `บันทึก ${newPunchItemType}` : `Add ${newPunchItemType}`}</span>
+                                </button>
+                              </div>
+                            </div>
+                          </form>
+                        )}
+                      </div>
+
+                      {/* Filter & Search Bar for Job Punch & Butt List */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {(['All', 'Punch', 'Butt'] as const).map(t => (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => setJobPunchTypeFilter(t)}
+                              className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+                                jobPunchTypeFilter === t
+                                  ? t === 'Butt'
+                                    ? 'bg-purple-600 text-white'
+                                    : t === 'Punch'
+                                    ? 'bg-amber-500 text-white'
+                                    : 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                                  : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                              }`}
+                            >
+                              {t === 'All' ? (isTh ? `ทั้งหมด (${totalJobItems})` : `All (${totalJobItems})`) : `${t} (${t === 'Punch' ? punchCount : buttCount})`}
+                            </button>
+                          ))}
+
+                          <span className="text-slate-300 dark:text-slate-700 mx-1">|</span>
+
+                          {(['All', 'A', 'B', 'C', 'S'] as const).map(c => (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() => setJobPunchCatFilter(c)}
+                              className={`px-2.5 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+                                jobPunchCatFilter === c
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                              }`}
+                            >
+                              {c === 'All' ? (isTh ? 'ทุก Cat' : 'All Cat') : `Cat ${c}`}
+                            </button>
+                          ))}
+
+                          <select
+                            value={jobPunchStatusFilter}
+                            onChange={e => setJobPunchStatusFilter(e.target.value as any)}
+                            className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer"
+                          >
+                            <option value="All">{isTh ? 'สถานะ: ทั้งหมด' : 'Status: All'}</option>
+                            <option value="In Progress">{isTh ? 'กำลังแก้ไข (In Progress)' : 'In Progress'}</option>
+                            <option value="Awaiting Verify">{isTh ? 'รอ Job Lead ตรวจ (Awaiting Verify)' : 'Awaiting Verify'}</option>
+                            <option value="Closed">{isTh ? 'ปิดแล้ว (Closed)' : 'Closed'}</option>
+                          </select>
+                        </div>
+
+                        <div className="relative min-w-[220px]">
+                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="text"
+                            value={jobPunchSearch}
+                            onChange={e => setJobPunchSearch(e.target.value)}
+                            placeholder={isTh ? 'ค้นหา ID, พิกัดท่อ/รอยเชื่อม, รายละเอียด...' : 'Search ID, tube/weld ref, scope...'}
+                            className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      {/* TAM Critical Rule Guidance Banner */}
+                      <div className="p-3.5 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 flex items-start gap-3 text-xs text-blue-900 dark:text-blue-200">
+                        <CheckCircle2 size={16} className="text-blue-600 shrink-0 mt-0.5" />
+                        <div>
+                          <strong className="block font-bold mb-0.5">
+                            {isTh ? '📌 กฎระเบียบด้าน Workflow ตามข้อกำหนด TAM:' : '📌 TAM Workflow Integrity Rule:'}
+                          </strong>
+                          <p className="leading-relaxed">
+                            {isTh
+                              ? 'เมื่อรายการ Punch/Butt ได้รับการแก้ไขและ Job Lead ตรวจสอบผ่านแล้ว สถานะจะเปลี่ยนเป็น "Pending Re-Accept" เพื่อให้ผู้มีอำนาจกลับไปที่แท็บ "การลงนาม (Sign)" ดำเนินการตรวจรับซ้ำและลงนามรับรองความพร้อมใหม่'
+                              : 'When punch/butt items are resolved and verified, status is set to "Pending Re-Accept" (never auto-accepted). The authorized user must return to Tab 1 (Sign) to re-evaluate and sign.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Punch / Butt List Table */}
+                      <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-50 dark:bg-slate-800/80 text-[10px] uppercase font-bold text-slate-500 tracking-wider border-b border-slate-200 dark:border-slate-800">
                             <tr>
-                              <td colSpan={10} className="p-6 text-center text-xs text-slate-400 italic">
-                                {isTh ? 'ไม่มีรายการข้อบกพร่องสำหรับ Job นี้ ระบบผ่านเกณฑ์ความพร้อม' : 'No punch/butt items logged for this job.'}
-                              </td>
+                              <th className="p-3">Punch/Butt ID</th>
+                              <th className="p-3">{isTh ? 'ประเภท' : 'Type'}</th>
+                              <th className="p-3">{isTh ? 'ความเสี่ยง (Cat)' : 'Cat'}</th>
+                              <th className="p-3">{isTh ? 'พิกัดท่อ / รอยเชื่อม & วิธีตรวจ' : 'Tube / Weld Ref & Test'}</th>
+                              <th className="p-3">{isTh ? 'รายละเอียดงานแก้ไข / งานค้าง (Remedial Works)' : 'Remedial Works / Butt Scope'}</th>
+                              <th className="p-3">Discipline</th>
+                              <th className="p-3">Contractor</th>
+                              <th className="p-3">{isTh ? 'กำหนดเสร็จ' : 'Plan Date'}</th>
+                              <th className="p-3">{isTh ? 'สถานะ (TAM)' : 'TAM Status'}</th>
+                              <th className="p-3">{isTh ? 'การปิดงาน (Contractor)' : 'Contractor Close'}</th>
+                              <th className="p-3">{isTh ? 'การตรวจสอบ (Job Lead)' : 'Job Lead Verify'}</th>
+                              <th className="p-3 text-right">{isTh ? 'จัดการ' : 'Actions'}</th>
                             </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                            {filteredJobPunchList.length > 0 ? (
+                              filteredJobPunchList.map((item) => {
+                                const isClosedByContractor = item.isContractorClosed || !!item.closedBy;
+                                const isVerifiedByLead = item.isVerified || !!item.verifiedBy;
 
+                                return (
+                                  <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                                    {/* Punch / Butt ID */}
+                                    <td className="p-3 font-mono font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                                      <div>{item.id}</div>
+                                      {item.item && (
+                                        <span className="text-[10px] text-slate-400 block">{item.item}</span>
+                                      )}
+                                    </td>
+
+                                    {/* Item Type: Punch or Butt */}
+                                    <td className="p-3 whitespace-nowrap">
+                                      <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                                        item.itemType === 'Butt'
+                                          ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-200'
+                                          : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-200'
+                                      }`}>
+                                        {item.itemType || 'Punch'}
+                                      </span>
+                                    </td>
+
+                                    {/* Category A / B / C / S */}
+                                    <td className="p-3 font-bold whitespace-nowrap">
+                                      <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                                        (item.category || item.punchCategory) === 'A'
+                                          ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                          : (item.category || item.punchCategory) === 'B'
+                                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                          : (item.category || item.punchCategory) === 'S'
+                                          ? 'bg-red-100 text-red-800 border border-red-200'
+                                          : 'bg-blue-100 text-blue-800 border border-blue-200'
+                                      }`}>
+                                        Cat {item.category || item.punchCategory || 'A'}
+                                      </span>
+                                    </td>
+
+                                    {/* Tube / Weld Location Ref & Test Method */}
+                                    <td className="p-3 max-w-[200px]">
+                                      <div className="font-mono text-[11px] font-bold text-teal-700 dark:text-teal-300">
+                                        {item.locationRef || currentJob.assetTag || 'Bundle / Flange'}
+                                      </div>
+                                      {item.testMethod && (
+                                        <div className="text-[10px] text-slate-500 mt-0.5">
+                                          {item.testMethod}
+                                        </div>
+                                      )}
+                                    </td>
+
+                                    {/* Remedial Works & Optional Defect Photo */}
+                                    <td className="p-3 text-slate-800 dark:text-slate-200 font-medium max-w-xs">
+                                      <div>{item.remedialWorks || item.description}</div>
+                                      {(item.defectPhotoUrl || item.resolutionPhotoUrl) && (
+                                        <div className="flex items-center gap-2 mt-1.5">
+                                          {item.defectPhotoUrl && (
+                                            <img
+                                              data-zoom="true"
+                                              src={item.defectPhotoUrl}
+                                              alt="Defect"
+                                              className="w-10 h-8 object-cover rounded border border-rose-300 cursor-pointer"
+                                              title={isTh ? 'ภาพถ่ายจุดบกพร่อง' : 'Defect photo'}
+                                            />
+                                          )}
+                                          {item.resolutionPhotoUrl && (
+                                            <img
+                                              data-zoom="true"
+                                              src={item.resolutionPhotoUrl}
+                                              alt="Resolution"
+                                              className="w-10 h-8 object-cover rounded border border-emerald-300 cursor-pointer"
+                                              title={isTh ? 'ภาพถ่ายหลังแก้ไข' : 'Resolution photo'}
+                                            />
+                                          )}
+                                        </div>
+                                      )}
+                                    </td>
+
+                                    {/* Discipline */}
+                                    <td className="p-3 text-slate-600 dark:text-slate-300 font-medium whitespace-nowrap">
+                                      {item.discipline || 'M - Mechanical'}
+                                    </td>
+
+                                    {/* Contractor */}
+                                    <td className="p-3 text-slate-600 dark:text-slate-300 max-w-[160px] truncate" title={item.contractor}>
+                                      {item.contractor || 'BCP Maintenance Team'}
+                                    </td>
+
+                                    {/* Planned Date */}
+                                    <td className="p-3 font-mono text-[11px] text-slate-500 whitespace-nowrap">
+                                      {item.plannedDate || item.timestamp?.slice(0, 10) || '-'}
+                                    </td>
+
+                                    {/* Punch Status */}
+                                    <td className="p-3 whitespace-nowrap">
+                                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                        item.punchStatus === 'Closed' || item.status === 'Resolved' || item.status === 'Closed'
+                                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                          : item.punchStatus === 'Cancel'
+                                          ? 'bg-slate-200 text-slate-600'
+                                          : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                      }`}>
+                                        {item.punchStatus || (item.status === 'Resolved' ? 'Closed' : 'In Progress')}
+                                      </span>
+                                    </td>
+
+                                    {/* Contractor Close Action */}
+                                    <td className="p-3 whitespace-nowrap">
+                                      {isClosedByContractor ? (
+                                        <div className="space-y-0.5">
+                                          <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                                            <Check size={12} className="stroke-[3]" />
+                                            <span>{isTh ? 'ปิดงานแล้ว' : 'Closed'}</span>
+                                          </div>
+                                          <div className="text-[10px] text-slate-500">
+                                            {item.closedBy || 'Contractor'}
+                                          </div>
+                                          {item.closedDate && (
+                                            <div className="text-[9px] font-mono text-slate-400">
+                                              {item.closedDate}
+                                            </div>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setContractorClosingItem(item);
+                                            setContractorCloseDate(new Date().toISOString().slice(0, 10));
+                                          }}
+                                          className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-emerald-100 hover:text-emerald-800 text-slate-700 dark:bg-slate-800 dark:text-slate-300 text-[11px] font-bold transition cursor-pointer"
+                                        >
+                                          {isTh ? 'แจ้งปิดงาน' : 'Close Work'}
+                                        </button>
+                                      )}
+                                    </td>
+
+                                    {/* Job Lead Verify Action */}
+                                    <td className="p-3 whitespace-nowrap">
+                                      {isVerifiedByLead ? (
+                                        <div className="space-y-0.5">
+                                          <div className="flex items-center gap-1 text-[11px] font-bold text-indigo-700 dark:text-indigo-400">
+                                            <CheckCircle2 size={12} />
+                                            <span>Verified</span>
+                                          </div>
+                                          <div className="text-[10px] text-slate-500">
+                                            {item.verifiedBy || 'Job Lead'}
+                                          </div>
+                                          {item.verificationTimestamp && (
+                                            <div className="text-[9px] font-mono text-slate-400">
+                                              {item.verificationTimestamp}
+                                            </div>
+                                          )}
+                                        </div>
+                                      ) : isClosedByContractor ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => setJobLeadVerifyingItem(item)}
+                                          className="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold transition shadow-xs cursor-pointer animate-pulse"
+                                        >
+                                          {isTh ? 'ตรวจสอบผ่าน' : 'Verify'}
+                                        </button>
+                                      ) : (
+                                        <span className="text-[10px] text-slate-400 italic">
+                                          {isTh ? 'รอช่างปิดงาน' : 'Await Close'}
+                                        </span>
+                                      )}
+                                    </td>
+
+                                    {/* Edit / Delete Actions */}
+                                    <td className="p-3 text-right whitespace-nowrap">
+                                      <div className="inline-flex items-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenEditPunchButtModal(item)}
+                                          className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-800 transition cursor-pointer"
+                                          title={isTh ? 'แก้ไขรายการ' : 'Edit Item'}
+                                        >
+                                          <PenTool size={13} />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteJobPunchItem(item.id)}
+                                          className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                                          title={isTh ? 'ลบรายการ' : 'Delete Item'}
+                                        >
+                                          <Trash2 size={13} />
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            ) : (
+                              <tr>
+                                <td colSpan={12} className="p-8 text-center text-xs text-slate-400 italic">
+                                  {isTh
+                                    ? 'ไม่พบรายการ Punch / Butt ตามตัวกรองที่เลือก หรือยังไม่มีรายการข้อบกพร่องสำหรับงานนี้'
+                                    : 'No Punch or Butt items match the current filter.'}
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                    </div>
+                  );
+                })()}
+
+                {/* ================= TAB 3: CP CLOSING DASHBOARD (SUB-TAB) ================= */}
+                {turnoverSubTab === 'cp-closing' && (
+                  <div className="p-4 sm:p-6">
+                    <TurnoverCpClosingDashboard
+                      globalPlantFilter={globalPlantFilter}
+                      onNavigateToWorkspace={(jobId) => {
+                        if (jobId) setSelectedJobId(jobId);
+                        setWorkspaceTab('turnover');
+                        setTurnoverSubTab('sign');
+                      }}
+                    />
                   </div>
                 )}
 
             </div>
           )}
 
-          {/* ================= MODAL: ADD PUNCH / BUTT ITEM (TAB 2) ================= */}
+          {/* TAB 3: CP CLOSING DASHBOARD (TOP-LEVEL WORKSPACE TAB) */}
+          {workspaceTab === 'cp-closing' && (
+            <div className="animate-in fade-in duration-200">
+              <TurnoverCpClosingDashboard
+                globalPlantFilter={globalPlantFilter}
+                onNavigateToWorkspace={(jobId) => {
+                  if (jobId) setSelectedJobId(jobId);
+                  setWorkspaceTab('turnover');
+                  setTurnoverSubTab('sign');
+                }}
+              />
+            </div>
+          )}
+
+          {/* ================= MODAL: ADD / EDIT PUNCH & BUTT ITEM OR BATCH TEMPLATES (TAB 2) ================= */}
           {isAddPunchModalOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-              <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-5">
+              <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full max-h-[92vh] overflow-y-auto border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-5">
                 <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                  <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                    <AlertTriangle size={17} className="text-amber-500" />
-                    <span>{isTh ? 'บันทึกรายการ Punch / Butt เพิ่มเติม' : 'Log New Punch / Butt Item'}</span>
-                  </h3>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                      <AlertTriangle size={18} className="text-amber-500" />
+                      <span>
+                        {editingPunchItemId
+                          ? (isTh ? `แก้ไขรายการ ${editingPunchItemId}` : `Edit Item ${editingPunchItemId}`)
+                          : (isTh ? 'เพิ่มรายการ Job Punch & Butt List (Inspection & Re-tubing)' : 'Add Job Punch & Butt List — Inspection & Re-tubing')}
+                      </span>
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      {currentJob.jobNo} — {currentJob.title} ({currentJob.assetTag || 'E-1102A/B'})
+                    </p>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => setIsAddPunchModalOpen(false)}
-                    className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+                    onClick={() => {
+                      setIsAddPunchModalOpen(false);
+                      setEditingPunchItemId(null);
+                    }}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
                   >
                     <X size={16} />
                   </button>
                 </div>
 
-                <form onSubmit={handleAddNewPunchItemTab2} className="space-y-4 text-xs">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    <div className="space-y-1">
-                      <label className="font-bold text-slate-700 dark:text-slate-300">
-                        ประเภทรายการ (Punch or Butt List) *
-                      </label>
-                      <select
-                        value={newPunchItemType}
-                        onChange={e => setNewPunchItemType(e.target.value as 'Punch' | 'Butt')}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold outline-none cursor-pointer"
-                      >
-                        <option value="Punch">Punch List (ข้อบกพร่อง)</option>
-                        <option value="Butt">Butt List (งานค้างส่งมอบ)</option>
-                      </select>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="font-bold text-slate-700 dark:text-slate-300">
-                        หมวดหมู่ (Punch Category) *
-                      </label>
-                      <select
-                        value={newPunchCategory}
-                        onChange={e => setNewPunchCategory(e.target.value as PunchCategory)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold outline-none cursor-pointer"
-                      >
-                        <option value="A">Category A</option>
-                        <option value="B">Category B</option>
-                        <option value="C">Category C</option>
-                      </select>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="font-bold text-slate-700 dark:text-slate-300">
-                        สาขา (Discipline) *
-                      </label>
-                      <select
-                        value={newPunchDiscipline}
-                        onChange={e => setNewPunchDiscipline(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none cursor-pointer"
-                      >
-                        {TAM_DISCIPLINE_OPTIONS.map(d => (
-                          <option key={d} value={d}>{d}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="font-bold text-slate-700 dark:text-slate-300">
-                        ผู้รับเหมา (Contractor) *
-                      </label>
-                      <select
-                        value={newPunchContractor}
-                        onChange={e => setNewPunchContractor(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none cursor-pointer"
-                      >
-                        {TAM_CONTRACTOR_OPTIONS.map(c => (
-                          <option key={c} value={c}>{c}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="space-y-1 sm:col-span-2">
-                      <label className="font-bold text-slate-700 dark:text-slate-300">
-                        กำหนดวันที่ต้องแก้ไข (Planned Date) *
-                      </label>
-                      <input
-                        type="date"
-                        required
-                        value={newPunchPlannedDate}
-                        onChange={e => setNewPunchPlannedDate(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="font-bold text-slate-700 dark:text-slate-300">
-                      รายละเอียดงานแก้ไข (Remedial Works) *
-                    </label>
-                    <textarea
-                      rows={3}
-                      required
-                      value={newPunchRemedialWorks}
-                      onChange={e => setNewPunchRemedialWorks(e.target.value)}
-                      placeholder="ระบุข้อบกพร่องและงานแก้ไข เช่น ตรวจพบประเก็นชำรุด ต้องถอดเปลี่ยนประเก็นใหม่และขันกวดตาม Torque spec..."
-                      className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20"
-                    />
-                  </div>
-
-                  <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 text-[11px] text-slate-500 flex items-center justify-between">
-                    <span>Related Job ID: <strong className="font-mono text-slate-800 dark:text-slate-200">{currentJob.jobNo || currentJob.id}</strong></span>
-                    <span>Status: <strong className="text-amber-600 font-bold">In Progress</strong></span>
-                  </div>
-
-                  <div className="flex items-center justify-end gap-2 pt-2">
+                {/* Mode Switcher: Single Item vs Batch Re-tubing Templates */}
+                {!editingPunchItemId && (
+                  <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-slate-100 dark:bg-slate-800">
                     <button
                       type="button"
-                      onClick={() => setIsAddPunchModalOpen(false)}
-                      className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 font-bold hover:bg-slate-100 cursor-pointer"
+                      onClick={() => setAddPunchModalMode('single')}
+                      className={`py-2 px-3 rounded-xl text-xs font-black transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                        addPunchModalMode === 'single'
+                          ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs'
+                          : 'text-slate-600 dark:text-slate-400'
+                      }`}
                     >
-                      ยกเลิก
+                      <Plus size={14} />
+                      <span>{isTh ? 'บันทึกรายการเดี่ยว (Single Punch / Butt)' : 'Single Punch / Butt Entry'}</span>
                     </button>
                     <button
-                      type="submit"
-                      className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition shadow-xs cursor-pointer"
+                      type="button"
+                      onClick={() => setAddPunchModalMode('template')}
+                      className={`py-2 px-3 rounded-xl text-xs font-black transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                        addPunchModalMode === 'template'
+                          ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-2xs'
+                          : 'text-slate-600 dark:text-slate-400'
+                      }`}
                     >
-                      บันทึกรายการ
+                      <Sparkles size={14} />
+                      <span>{isTh ? 'นำเข้าชุดเทมเพลต Re-tubing (Batch)' : 'Batch Re-tubing Templates'}</span>
                     </button>
                   </div>
-                </form>
+                )}
+
+                {addPunchModalMode === 'single' ? (
+                  <form onSubmit={handleAddNewPunchItemTab2} className="space-y-4 text-xs">
+                    {/* Preset Selector */}
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-700 dark:text-slate-300">
+                        {isTh ? 'เลือกเทมเพลตมาตรฐานงาน Inspection & Re-tubing (ไม่บังคับ)' : 'Inspection & Re-tubing Preset (Optional)'}
+                      </label>
+                      <select
+                        value={newPunchPresetId}
+                        onChange={e => handleApplyRetubingPreset(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 font-semibold text-slate-800 dark:text-slate-200 outline-none cursor-pointer"
+                      >
+                        <option value="">{isTh ? '— กำหนดเอง หรือเลือกเทมเพลตงาน Re-tubing —' : '— Custom Entry or Select Re-tubing Preset —'}</option>
+                        {RETUBING_PUNCH_BUTT_PRESETS.map(p => (
+                          <option key={p.id} value={p.id}>
+                            [{p.itemType} · Cat {p.category}] {isTh ? p.titleTh : p.titleEn} ({p.locationRef})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700 dark:text-slate-300">
+                          {isTh ? 'ประเภทรายการ (Punch or Butt List) *' : 'Item Type (Punch or Butt List) *'}
+                        </label>
+                        <select
+                          value={newPunchItemType}
+                          onChange={e => setNewPunchItemType(e.target.value as 'Punch' | 'Butt')}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold outline-none cursor-pointer"
+                        >
+                          <option value="Punch">{isTh ? 'Punch List (ข้อบกพร่องจากการตรวจสอบ)' : 'Punch List (Inspection Defect)'}</option>
+                          <option value="Butt">{isTh ? 'Butt List (งานอัดท่อ Re-tubing / งานเชื่อมค้างส่งมอบ)' : 'Butt List (Carry-over / Re-tubing Scope)'}</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700 dark:text-slate-300">
+                          {isTh ? 'หมวดหมู่ความเสี่ยง (Category) *' : 'Punch / Butt Category *'}
+                        </label>
+                        <select
+                          value={newPunchCategory}
+                          onChange={e => setNewPunchCategory(e.target.value as PunchCategory)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold outline-none cursor-pointer"
+                        >
+                          <option value="A">Category A (Pre-Startup Blocker)</option>
+                          <option value="B">Category B (Before Handover)</option>
+                          <option value="C">Category C (Minor / Post-Startup)</option>
+                          <option value="S">Category S (Safety Critical)</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700 dark:text-slate-300">
+                          {isTh ? 'พิกัดท่อ / รอยเชื่อม / หน้าแปลน (Tube / Weld Ref) *' : 'Tube Row-Col / Weld Joint / Location Ref *'}
+                        </label>
+                        <input
+                          type="text"
+                          value={newPunchLocationRef}
+                          onChange={e => setNewPunchLocationRef(e.target.value)}
+                          placeholder={isTh ? 'เช่น Tube Bundle Pass 2 (R14-C08) / Weld BW-104' : 'e.g. Pass 2 R14-C08 / Butt Weld BW-104'}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700 dark:text-slate-300">
+                          {isTh ? 'วิธีตรวจสอบ (NDE / Test Method)' : 'Inspection / NDE Test Method'}
+                        </label>
+                        <input
+                          type="text"
+                          value={newPunchTestMethod}
+                          onChange={e => setNewPunchTestMethod(e.target.value)}
+                          placeholder={isTh ? 'เช่น Eddy Current (ECT) / Hydrotest / 100% RT' : 'e.g. Eddy Current (ECT) / Hydrotest / RT'}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700 dark:text-slate-300">
+                          {isTh ? 'สาขา (Discipline) *' : 'Discipline *'}
+                        </label>
+                        <select
+                          value={newPunchDiscipline}
+                          onChange={e => setNewPunchDiscipline(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none cursor-pointer"
+                        >
+                          {TAM_DISCIPLINE_OPTIONS.map(d => (
+                            <option key={d} value={d}>{d}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700 dark:text-slate-300">
+                          {isTh ? 'ผู้รับเหมา (Contractor) *' : 'Contractor *'}
+                        </label>
+                        <select
+                          value={newPunchContractor}
+                          onChange={e => setNewPunchContractor(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none cursor-pointer"
+                        >
+                          {TAM_CONTRACTOR_OPTIONS.map(c => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700 dark:text-slate-300">
+                          {isTh ? 'กำหนดวันที่ต้องแก้ไข (Planned Date) *' : 'Planned Date *'}
+                        </label>
+                        <input
+                          type="date"
+                          required
+                          value={newPunchPlannedDate}
+                          onChange={e => setNewPunchPlannedDate(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700 dark:text-slate-300">
+                          {isTh ? 'ผู้แจ้ง / ผู้ตรวจสอบ (Reported By)' : 'Reported By'}
+                        </label>
+                        <input
+                          type="text"
+                          value={newPunchReportedBy}
+                          onChange={e => setNewPunchReportedBy(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-700 dark:text-slate-300">
+                        {isTh ? 'รายละเอียดงานแก้ไข / งานค้างส่งมอบ (Remedial Works) *' : 'Remedial Works / Butt Scope Description *'}
+                      </label>
+                      <textarea
+                        rows={3}
+                        required
+                        value={newPunchRemedialWorks}
+                        onChange={e => setNewPunchRemedialWorks(e.target.value)}
+                        placeholder={isTh ? 'ระบุข้อบกพร่องหรือขอบเขตงานค้าง เช่น อุดท่อ Tube Pass 2 ด้วย Tapered Plug 316L และทำ Hydrotest ซ้ำที่ 12.5 barg...' : 'Specify defect and remedial works or re-tubing butt scope...'}
+                        className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20"
+                      />
+                    </div>
+
+                    {/* Photo Attachment & Mandatory Photo Toggle */}
+                    <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <label className="flex items-center gap-2 font-bold text-slate-700 dark:text-slate-200 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={newPunchPhotoRequired}
+                            onChange={e => setNewPunchPhotoRequired(e.target.checked)}
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span>{isTh ? 'บังคับแนบรูปถ่ายหลักฐานเมื่อแจ้งปิดงาน (Photo Required on Close)' : 'Require photo evidence on close-out'}</span>
+                        </label>
+
+                        <input
+                          ref={newPunchPhotoInputRef}
+                          type="file"
+                          accept="image/*"
+                          onChange={handleNewPunchPhotoUpload}
+                          className="hidden"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => newPunchPhotoInputRef.current?.click()}
+                          className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 text-[11px] font-bold flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Camera size={13} className="text-blue-600" />
+                          <span>{newPunchDefectPhotoUrl ? (isTh ? 'เปลี่ยนรูปถ่ายหน้างาน' : 'Change Photo') : (isTh ? '+ แนบรูปถ่ายจุดบกพร่อง' : '+ Attach Defect Photo')}</span>
+                        </button>
+                      </div>
+
+                      {newPunchDefectPhotoUrl && (
+                        <div className="flex items-center gap-3 pt-1">
+                          <img
+                            src={newPunchDefectPhotoUrl}
+                            alt="Defect Preview"
+                            className="w-20 h-16 object-cover rounded-xl border border-slate-300"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setNewPunchDefectPhotoUrl(null)}
+                            className="text-[11px] font-bold text-rose-600 hover:underline cursor-pointer"
+                          >
+                            {isTh ? 'ลบรูปภาพ' : 'Remove photo'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 text-[11px] text-slate-500 flex items-center justify-between">
+                      <span>Related Job ID: <strong className="font-mono text-slate-800 dark:text-slate-200">{currentJob.jobNo || currentJob.id}</strong></span>
+                      <span>Status: <strong className="text-amber-600 font-bold">In Progress</strong></span>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAddPunchModalOpen(false);
+                          setEditingPunchItemId(null);
+                        }}
+                        className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 font-bold hover:bg-slate-100 cursor-pointer"
+                      >
+                        {isTh ? 'ยกเลิก' : 'Cancel'}
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black transition shadow-xs cursor-pointer"
+                      >
+                        {editingPunchItemId
+                          ? (isTh ? 'บันทึกการแก้ไข' : 'Save Changes')
+                          : (isTh ? `บันทึกรายการ ${newPunchItemType} List` : `Save ${newPunchItemType} Item`)}
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  /* Batch Template Mode for Inspection & Re-tubing */
+                  <div className="space-y-4 text-xs">
+                    <p className="text-slate-600 dark:text-slate-300">
+                      {isTh
+                        ? 'เลือกรายการมาตรฐานสำหรับงานตรวจสอบและเปลี่ยนท่อแลกเปลี่ยนความร้อน (Condenser Inspection & Re-tubing) เพื่อเพิ่มเข้าสู่ทะเบียน Job Punch & Butt List พร้อมกัน:'
+                        : 'Select standard Condenser Inspection & Re-tubing Punch and Butt items to batch-import into this job:'}
+                    </p>
+
+                    <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                      {RETUBING_PUNCH_BUTT_PRESETS.map(preset => {
+                        const checked = selectedTemplateIds.includes(preset.id);
+                        return (
+                          <label
+                            key={preset.id}
+                            className={`p-3.5 rounded-2xl border flex items-start gap-3 cursor-pointer transition ${
+                              checked
+                                ? 'border-indigo-500 bg-indigo-50/60 dark:bg-indigo-950/30'
+                                : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 hover:border-slate-300'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={e => {
+                                if (e.target.checked) {
+                                  setSelectedTemplateIds(prev => [...prev, preset.id]);
+                                } else {
+                                  setSelectedTemplateIds(prev => prev.filter(id => id !== preset.id));
+                                }
+                              }}
+                              className="mt-1 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <div className="flex-1 space-y-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                                  preset.itemType === 'Butt'
+                                    ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                                    : 'bg-amber-100 text-amber-800 border border-amber-200'
+                                }`}>
+                                  {preset.itemType}
+                                </span>
+                                <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-100 text-rose-800">
+                                  Cat {preset.category}
+                                </span>
+                                <span className="font-bold text-slate-900 dark:text-slate-100">
+                                  {isTh ? preset.titleTh : preset.titleEn}
+                                </span>
+                              </div>
+                              <div className="text-[11px] font-mono text-teal-700 dark:text-teal-400">
+                                {preset.locationRef} · {preset.testMethod}
+                              </div>
+                              <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                                {isTh ? preset.remedialTh : preset.remedialEn}
+                              </p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800">
+                      <span className="text-[11px] text-slate-500 font-bold">
+                        {isTh ? `เลือกแล้ว ${selectedTemplateIds.length} รายการ` : `${selectedTemplateIds.length} templates selected`}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setIsAddPunchModalOpen(false)}
+                          className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 font-bold hover:bg-slate-100 cursor-pointer"
+                        >
+                          {isTh ? 'ยกเลิก' : 'Cancel'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleBatchAddRetubingTemplates}
+                          className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black transition shadow-xs cursor-pointer"
+                        >
+                          {isTh ? `+ นำเข้า ${selectedTemplateIds.length} รายการ` : `+ Import ${selectedTemplateIds.length} Items`}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -5604,7 +6985,37 @@ export default function JobLocationTurnoverPrototype({
               <Building2 size={15} />
               <span>{isTh ? 'ความพร้อมแยกตามหน่วยผลิต' : 'Unit Readiness Funnel'}</span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => setExecutiveSubTab('cp-closing')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${executiveSubTab === 'cp-closing'
+                ? 'bg-[#002060] text-white shadow-md shadow-blue-900/25 ring-2 ring-blue-500/30'
+                : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-750 border border-slate-200 dark:border-slate-700'
+                }`}
+            >
+              <BarChart3 size={15} />
+              <span>CP Closing Dashboard</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-[#10B981] text-white font-mono">
+                100%
+              </span>
+            </button>
           </div>
+
+          {/* ===============================================================
+              SUB-TAB 4: CP CLOSING DASHBOARD
+             =============================================================== */}
+          {executiveSubTab === 'cp-closing' && (
+            <TurnoverCpClosingDashboard
+              globalPlantFilter={globalPlantFilter}
+              onNavigateToWorkspace={(jobId) => {
+                if (jobId) setSelectedJobId(jobId);
+                setActiveMainView('workspace');
+                setWorkspaceTab('turnover');
+                setTurnoverSubTab('sign');
+              }}
+            />
+          )}
 
           {/* ===============================================================
               SUB-TAB 1: EX01 TURNOVER OVERVIEW DASHBOARD
