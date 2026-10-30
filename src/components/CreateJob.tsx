@@ -5,10 +5,12 @@ import {
   Copy, CheckCircle2, AlertCircle, FileText, Sparkles, X,
   RefreshCw, Check, ArrowRight, CornerDownRight, ExternalLink, Paperclip,
   Search, ChevronDown, ClipboardList, Building, Building2, Wrench, ShieldCheck, ChevronUp,
-  ArrowLeft, Eye, QrCode, Tag, AlertTriangle, Link as LinkIcon, ArrowDownUp, MoveHorizontal
+  ArrowLeft, Eye, QrCode, Tag, AlertTriangle, Link as LinkIcon, ArrowDownUp, MoveHorizontal,
+  Activity, UserCheck, Award, Workflow
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useLanguage } from '../context/LanguageContext';
+import { usePlantTurnShared, TurnoverEventRecord } from '../context/PlantTurnSharedContext';
 import JobAttachmentSection from './common/JobAttachmentSection';
 import { JobAttachment, saveJobAttachments } from '../data/jobAttachmentData';
 import { getAllCraneJobs, addCraneJob, subscribeToCraneOperations, UnifiedCraneJob, navigateToCraneView } from '../data/craneOperationsData';
@@ -301,21 +303,52 @@ interface CreateJobProps {
 
 export default function CreateJob({ isScaffolding = false, onNavigateToRequests, setActiveView }: CreateJobProps) {
   const { isTh } = useLanguage();
+  const {
+    events,
+    createEvent,
+    deleteEvent,
+    checkEventExists
+  } = usePlantTurnShared();
 
   // ================= VIEW STATE: HUB OVERVIEW VS CREATE FORM =================
   // Direct entry into form on create navigation; back returns to requests list
   const [isCreateFormOpen, setIsCreateFormOpen] = useState(true);
-  const [activeMode, setActiveMode] = useState<'single' | 'bulk'>('single');
+  const [activeMode, setActiveMode] = useState<'event' | 'single' | 'bulk'>('event');
   const [hubPlantFilter, setHubPlantFilter] = useState<'All' | 'Phra Khanong' | 'Sriracha'>('All');
 
   useEffect(() => {
     setIsCreateFormOpen(true);
   }, [isScaffolding]);
 
+  // ================= EVENT CREATION & REGISTRY STATE =================
+  const [formEventCode, setFormEventCode] = useState('');
+  const [eventName, setEventName] = useState('');
+  const [formEventType, setFormEventType] = useState('Annual Turnaround (TA)');
+  const [formEventPlant, setFormEventPlant] = useState<'Phra Khanong' | 'Sriracha' | 'All Plants'>('Phra Khanong');
+  const [formEventTargetUnits, setFormEventTargetUnits] = useState<string[]>([CRANE_LOCATION_AREAS[1]]);
+  const [eventStartDate, setEventStartDate] = useState('');
+  const [eventTargetDate, setEventTargetDate] = useState('');
+  const [eventMilestone, setEventMilestone] = useState('');
+  const [formEventCoordinator, setFormEventCoordinator] = useState(REVIEW_BY_OPTIONS[0]);
+  const [formEventDescription, setFormEventDescription] = useState('');
+  const [formEventStatus, setFormEventStatus] = useState<'Planning' | 'Active' | 'Turnover Phase' | 'Completed'>('Planning');
+  const [createdEventFeedback, setCreatedEventFeedback] = useState<TurnoverEventRecord | null>(null);
+  const [eventRegistryPlantFilter, setEventRegistryPlantFilter] = useState<'All' | 'Phra Khanong' | 'Sriracha'>('All');
+  const [eventRegistrySearch, setEventRegistrySearch] = useState('');
+
+  // Selected Event for Single / Bulk Crane Job Creation
+  const [formSelectedEventName, setFormSelectedEventName] = useState<string>(() => {
+    return events[0]?.eventName || 'Annual Turnaround 2026';
+  });
+  const [isQuickEventOpen, setIsQuickEventOpen] = useState(false);
+  const [quickEventCode, setQuickEventCode] = useState('');
+  const [quickEventName, setQuickEventName] = useState('');
+  const [quickEventType, setQuickEventType] = useState('Annual Turnaround (TA)');
+  const [quickEventStart, setQuickEventStart] = useState(() => new Date().toISOString().slice(0, 10));
+  const [quickEventTarget, setQuickEventTarget] = useState(() => new Date(Date.now() + 86400000 * 14).toISOString().slice(0, 10));
+
   // Plant and Event Milestone Configuration
   const [selectedPlant, setSelectedPlant] = useState<'Phra Khanong' | 'Sriracha'>('Phra Khanong');
-  const [eventName, setEventName] = useState('');
-  const [eventMilestone, setEventMilestone] = useState('');
   const [workOrderNo, setWorkOrderNo] = useState('');
 
   // ================= SINGLE JOB FORM STATE (CRANE JOB SPECIFICATION) =================
@@ -598,6 +631,193 @@ export default function CreateJob({ isScaffolding = false, onNavigateToRequests,
     setOptimizeWith(OPTIMIZE_WITH_OPTIONS[1]);
   };
 
+  // ================= EVENT VALIDATION & HELPERS =================
+  const isEventCodeDuplicate = useMemo(() => {
+    if (!formEventCode.trim()) return false;
+    return checkEventExists(formEventCode.trim());
+  }, [formEventCode, checkEventExists, events]);
+
+  const isEventNameDuplicate = useMemo(() => {
+    if (!eventName.trim()) return false;
+    return checkEventExists(eventName.trim());
+  }, [eventName, checkEventExists, events]);
+
+  const isEventFormValid = useMemo(() => {
+    return Boolean(
+      formEventCode.trim() &&
+      !isEventCodeDuplicate &&
+      eventName.trim() &&
+      !isEventNameDuplicate &&
+      formEventType &&
+      formEventPlant &&
+      formEventTargetUnits.length > 0 &&
+      eventStartDate &&
+      eventTargetDate &&
+      formEventCoordinator
+    );
+  }, [
+    formEventCode,
+    isEventCodeDuplicate,
+    eventName,
+    isEventNameDuplicate,
+    formEventType,
+    formEventPlant,
+    formEventTargetUnits,
+    eventStartDate,
+    eventTargetDate,
+    formEventCoordinator
+  ]);
+
+  const eventDurationDays = useMemo(() => {
+    if (!eventStartDate || !eventTargetDate) return null;
+    const s = new Date(eventStartDate).getTime();
+    const e = new Date(eventTargetDate).getTime();
+    if (isNaN(s) || isNaN(e) || e < s) return null;
+    return Math.max(1, Math.round((e - s) / 86400000) + 1);
+  }, [eventStartDate, eventTargetDate]);
+
+  const resetEventForm = () => {
+    setFormEventCode('');
+    setEventName('');
+    setFormEventType('Annual Turnaround (TA)');
+    setFormEventPlant('Phra Khanong');
+    setFormEventTargetUnits([CRANE_LOCATION_AREAS[1]]);
+    setEventStartDate('');
+    setEventTargetDate('');
+    setEventMilestone('');
+    setFormEventCoordinator(REVIEW_BY_OPTIONS[0]);
+    setFormEventDescription('');
+    setFormEventStatus('Planning');
+    setCreatedEventFeedback(null);
+  };
+
+  const handleGenerateEventCode = () => {
+    const pCode = formEventPlant === 'Sriracha' ? 'SR' : formEventPlant === 'All Plants' ? 'ALL' : 'PK';
+    const seq = String(events.length + 1).padStart(2, '0');
+    const rand = Math.floor(10 + Math.random() * 89);
+    setFormEventCode(`EVT-${pCode}-2026-CR${seq}${rand}`);
+  };
+
+  const handleFillSampleEvent = () => {
+    const pCode = formEventPlant === 'Sriracha' ? 'SR' : 'PK';
+    const rand = Math.floor(10 + Math.random() * 89);
+    setFormEventCode(`EVT-${pCode}-2026-CR${rand}`);
+    setEventName(`Turnaround Heavy Lift & Rigging Campaign ${rand}`);
+    setFormEventType('Heavy Lift Campaign');
+    setFormEventPlant('Phra Khanong');
+    setFormEventTargetUnits(['S1 - CCR, SRU, TGCU, Utility', 'S2 - APS-1, APS-2, FCCU, GOHF-3']);
+    setEventStartDate('2026-10-15');
+    setEventTargetDate('2026-10-30');
+    setEventMilestone('All Column Overhead & Exchanger Bundle Heavy Lifts Completed');
+    setFormEventCoordinator(REVIEW_BY_OPTIONS[1]);
+    setFormEventDescription('Coordinated 300T/500T All-Terrain & Crawler Crane lifting campaign for CDU-1 overhead condensers, tube bundle extraction, and reactor top spool rigging.');
+    setFormEventStatus('Active');
+  };
+
+  const toggleEventTargetUnit = (unit: string) => {
+    setFormEventTargetUnits(prev =>
+      prev.includes(unit) ? prev.filter(u => u !== unit) : [...prev, unit]
+    );
+  };
+
+  const applyEventToCraneForm = (ev: TurnoverEventRecord) => {
+    setFormSelectedEventName(ev.eventName);
+    if (ev.plant === 'Phra Khanong' || ev.plant === 'Sriracha') {
+      setSelectedPlant(ev.plant);
+    }
+    if (ev.targetUnits && ev.targetUnits.length > 0) {
+      const matchedArea = CRANE_LOCATION_AREAS.find(a => a === ev.targetUnits[0]);
+      if (matchedArea) setLocationArea(matchedArea);
+    }
+    if (ev.startDate) {
+      setWorkStartDate(ev.startDate);
+      setWorkEndDate(ev.targetTurnoverDate || ev.startDate);
+    }
+    if (ev.coordinator && REVIEW_BY_OPTIONS.includes(ev.coordinator)) {
+      setReviewBy(ev.coordinator);
+    }
+  };
+
+  const handleCreateEventSubmit = (e: React.FormEvent, proceedToJob = false) => {
+    e.preventDefault();
+    if (!isEventFormValid) return;
+
+    const created = createEvent({
+      eventCode: formEventCode.trim(),
+      eventName: eventName.trim(),
+      eventType: formEventType,
+      plant: formEventPlant,
+      targetUnits: formEventTargetUnits,
+      startDate: eventStartDate,
+      targetTurnoverDate: eventTargetDate,
+      milestone: eventMilestone.trim() || 'All Scheduled Heavy Lifts & Rigging Sign-offs Completed',
+      coordinator: formEventCoordinator,
+      description: formEventDescription.trim(),
+      status: formEventStatus
+    });
+
+    setCreatedEventFeedback(created);
+    applyEventToCraneForm(created);
+
+    if (proceedToJob) {
+      setActiveMode('single');
+    }
+  };
+
+  const handleQuickCreateEvent = () => {
+    if (!quickEventName.trim()) return;
+    if (checkEventExists(quickEventName.trim())) {
+      alert(isTh ? `ชื่อ Event "${quickEventName.trim()}" มีอยู่ในระบบแล้ว` : `Event "${quickEventName.trim()}" already exists.`);
+      return;
+    }
+    const pCode = selectedPlant === 'Sriracha' ? 'SR' : 'PK';
+    const code = quickEventCode.trim() || `EVT-${pCode}-2026-CR${String(events.length + 1).padStart(2, '0')}`;
+    const created = createEvent({
+      eventCode: code,
+      eventName: quickEventName.trim(),
+      eventType: quickEventType,
+      plant: selectedPlant,
+      targetUnits: [locationArea || CRANE_LOCATION_AREAS[0]],
+      startDate: quickEventStart,
+      targetTurnoverDate: quickEventTarget,
+      milestone: 'All Scheduled Heavy Lifts Completed',
+      coordinator: reviewBy || REVIEW_BY_OPTIONS[0],
+      description: `Created via Quick Event from Crane Job Form (${selectedPlant})`,
+      status: 'Active'
+    });
+    applyEventToCraneForm(created);
+    setQuickEventCode('');
+    setQuickEventName('');
+    setIsQuickEventOpen(false);
+  };
+
+  const allAvailableEventNames = useMemo(() => {
+    const fromEvents = events.map(e => e.eventName);
+    const fromJobs = savedJobs.map(j => j.eventName).filter(Boolean) as string[];
+    return Array.from(new Set([...fromEvents, ...fromJobs]));
+  }, [events, savedJobs]);
+
+  const activeSelectedEventRecord = useMemo(() => {
+    return events.find(e => e.eventName === formSelectedEventName) || null;
+  }, [events, formSelectedEventName]);
+
+  const filteredRegistryEvents = useMemo(() => {
+    return events.filter(ev => {
+      if (eventRegistryPlantFilter !== 'All' && ev.plant !== 'All Plants' && ev.plant !== eventRegistryPlantFilter) {
+        return false;
+      }
+      if (eventRegistrySearch.trim()) {
+        const q = eventRegistrySearch.trim().toLowerCase();
+        return (
+          ev.eventName.toLowerCase().includes(q) ||
+          ev.eventCode.toLowerCase().includes(q) ||
+          ev.eventType.toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [events, eventRegistryPlantFilter, eventRegistrySearch]);
+
   // ================= SINGLE SUBMIT =================
   const handleSingleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -681,6 +901,8 @@ export default function CreateJob({ isScaffolding = false, onNavigateToRequests,
       workOrder: `WO-${woNumber}`,
       description: jobDescription.trim(),
       plant: selectedPlant === 'Phra Khanong' ? 'Phra Khanong' : 'Sriracha',
+      eventName: formSelectedEventName.trim() || 'Annual Turnaround 2026',
+      eventCode: activeSelectedEventRecord?.eventCode,
       functionalLocation,
       locationArea,
       area: locationArea,
@@ -812,6 +1034,19 @@ export default function CreateJob({ isScaffolding = false, onNavigateToRequests,
               <button
                 type="button"
                 onClick={() => {
+                  resetEventForm();
+                  setActiveMode('event');
+                  setIsCreateFormOpen(true);
+                }}
+                className="h-12 px-5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs sm:text-sm shadow-lg shadow-teal-600/25 active:scale-95 flex items-center gap-2 transition-all cursor-pointer"
+              >
+                <Calendar size={17} />
+                <span>{isTh ? 'สร้าง Event ใหม่' : 'Create Event'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
                   resetForm();
                   setActiveMode('single');
                   setIsCreateFormOpen(true);
@@ -870,22 +1105,44 @@ export default function CreateJob({ isScaffolding = false, onNavigateToRequests,
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-mono">
-                    {isTh ? 'โหมดสร้างคำขอหน้างาน' : 'Field Entry Mode'}
+                    {activeMode === 'event'
+                      ? (isTh ? 'โหมดสร้างและจัดการ EVENT งานเครน' : 'Crane & Turnaround Event Setup')
+                      : (isTh ? 'โหมดสร้างคำขอหน้างาน' : 'Field Entry Mode')}
                   </span>
                   <span className="text-slate-400 text-xs">
-                    {isTh ? '· กำหนดจุดมาร์คกิ้งบนผังและสเปกเครื่องจักร' : '· Plot Plan Coordinates & Machine Allocation'}
+                    {activeMode === 'event'
+                      ? (isTh ? '· กำหนดแคมเปญงานยก ช่วงเวลา และหน่วยผลิตเป้าหมาย' : '· Lifting Campaign Scope & Schedule')
+                      : (isTh ? '· กำหนดจุดมาร์คกิ้งบนผังและสเปกเครื่องจักร' : '· Plot Plan Coordinates & Machine Allocation')}
                   </span>
                 </div>
                 <h2 className="text-lg sm:text-xl font-black text-slate-900 dark:text-slate-100 tracking-tight mt-0.5">
-                  {isScaffolding
-                    ? (isTh ? 'แบบฟอร์มขอติดตั้งและใช้งานนั่งร้านหน้างาน' : 'On-Site Scaffolding Request Form')
-                    : (isTh ? 'แบบฟอร์มขอใช้งานเครนและเครื่องจักรยกหนักหน้างาน' : 'On-Site Crane & Heavy Lift Request Form')}
+                  {activeMode === 'event'
+                    ? (isTh ? 'สร้างและบริหารจัดการ Event งานเครน & ซ่อมบำรุง (Create & Manage Event)' : 'Create & Manage Crane / Turnaround Event')
+                    : isScaffolding
+                      ? (isTh ? 'แบบฟอร์มขอติดตั้งและใช้งานนั่งร้านหน้างาน' : 'On-Site Scaffolding Request Form')
+                      : (isTh ? 'แบบฟอร์มขอใช้งานเครนและเครื่องจักรยกหนักหน้างาน' : 'On-Site Crane & Heavy Lift Request Form')}
                 </h2>
               </div>
             </div>
 
-            {/* Segmented Mode Selector Button Group */}
-            <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700 shrink-0 self-start sm:self-auto">
+            {/* Segmented Mode Selector Button Group (3 Tabs: Create Event | Single Job Form | Bulk Ingestion) */}
+            <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700 shrink-0 self-start sm:self-auto flex-wrap gap-1">
+              <button
+                type="button"
+                onClick={() => setActiveMode('event')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${activeMode === 'event'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+              >
+                <Calendar size={14} />
+                <span>{isTh ? '1. สร้าง Event' : '1. Create Event'}</span>
+                <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-bold ${
+                  activeMode === 'event' ? 'bg-white/20 text-white' : 'bg-blue-500/15 text-blue-600 dark:text-blue-400'
+                }`}>
+                  {events.length}
+                </span>
+              </button>
               <button
                 type="button"
                 onClick={() => setActiveMode('single')}
@@ -895,27 +1152,593 @@ export default function CreateJob({ isScaffolding = false, onNavigateToRequests,
                   }`}
               >
                 <FileText size={14} />
-                <span>{isTh ? 'แบบฟอร์มเดี่ยว' : 'Single Job Form'}</span>
+                <span>{isTh ? '2. แบบฟอร์มเดี่ยว' : '2. Single Job Form'}</span>
               </button>
               <button
                 type="button"
                 onClick={() => setActiveMode('bulk')}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${activeMode === 'bulk'
-                    ? 'bg-blue-600 text-white shadow-xs'
+                    ? 'bg-indigo-600 text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
               >
                 <Layers size={14} />
-                <span>{isTh ? 'นำเข้าแบบกลุ่ม' : 'Bulk Ingestion'}</span>
-                <span className="bg-blue-500/30 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">50+</span>
+                <span>{isTh ? '3. นำเข้าแบบกลุ่ม' : '3. Bulk Ingestion'}</span>
+                <span className="bg-indigo-500/30 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">50+</span>
               </button>
             </div>
           </div>
 
-          {activeMode === 'bulk' ? (
+          {activeMode === 'event' ? (
+            /* =========================================================================
+               TAB 1: CREATE & MANAGE CRANE / TURNAROUND EVENT WORKSPACE
+               ========================================================================= */
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in duration-200">
+              {/* Left 7 Cols: Create Event Form */}
+              <div className="lg:col-span-7 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-6 space-y-6">
+                <div className="flex items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4 flex-wrap">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
+                        STEP 1 • EVENT INITIALIZATION
+                      </span>
+                      <span className="text-xs text-slate-400">
+                        {isTh ? '• ผูกใบงานเครนทั้งหมดเข้ากับรอบซ่อมบำรุง/แคมเปญงานยก' : '• Group crane requests under a master campaign'}
+                      </span>
+                    </div>
+                    <h3 className="text-lg font-black text-slate-900 dark:text-slate-100 flex items-center gap-2 mt-1">
+                      <Calendar className="text-blue-600 dark:text-blue-400" size={20} />
+                      <span>{isTh ? 'สร้าง Event งานเครน / รอบซ่อมบำรุงใหญ่ใหม่' : 'Create New Crane & Turnaround Event'}</span>
+                    </h3>
+                  </div>
+
+                  <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${
+                    isEventFormValid
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                      : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                  }`}>
+                    {isEventFormValid ? (
+                      <>
+                        <CheckCircle2 size={13} className="text-emerald-600" />
+                        <span>{isTh ? 'พร้อมสร้าง Event' : 'Ready to Save'}</span>
+                      </>
+                    ) : (
+                      <span>{isTh ? 'กรอกข้อมูลที่มีเครื่องหมาย *' : 'Fill Required (*)'}</span>
+                    )}
+                  </span>
+                </div>
+
+                {createdEventFeedback && (
+                  <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in zoom-in-95 duration-200">
+                    <div className="flex items-start gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                        <CheckCircle2 size={18} />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-emerald-950 dark:text-emerald-100">
+                          {isTh
+                            ? `บันทึก Event "${createdEventFeedback.eventName}" (${createdEventFeedback.eventCode}) สำเร็จแล้ว!`
+                            : `Event "${createdEventFeedback.eventName}" (${createdEventFeedback.eventCode}) created!`}
+                        </div>
+                        <p className="text-[11px] text-emerald-700 dark:text-emerald-300 mt-0.5">
+                          {isTh
+                            ? 'ท่านสามารถกดปุ่มด้านขวาเพื่อสร้างคำขอเครนเดี่ยว หรือนำเข้าไฟล์งานเครน 50+ รายการภายใต้ Event นี้ได้ทันที'
+                            : 'Proceed to create single crane requests or bulk import 50+ crane lifts under this event.'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setActiveMode('single')}
+                        className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer"
+                      >
+                        <Plus size={14} />
+                        <span>{isTh ? 'สร้างคำขอเครนต่อ' : 'Create Crane Job'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveMode('bulk')}
+                        className="px-3 py-2 rounded-xl bg-white dark:bg-slate-800 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700 text-xs font-bold cursor-pointer"
+                      >
+                        {isTh ? 'นำเข้าแบบกลุ่ม' : 'Bulk Import'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <form onSubmit={(e) => handleCreateEventSubmit(e, false)} className="space-y-5">
+                  {/* Section 1: Event Code, Name, Category & Status */}
+                  <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                      {/* Event Code */}
+                      <div className="md:col-span-5 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                            <Tag size={13} className={isEventCodeDuplicate ? 'text-rose-600' : 'text-blue-600 dark:text-blue-400'} />
+                            <span>{isTh ? 'รหัส Event (Event Code)' : 'Event Code'} <span className="text-rose-500">*</span></span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={handleGenerateEventCode}
+                            className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                          >
+                            {isTh ? 'สร้างรหัสอัตโนมัติ' : 'Auto-Gen'}
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          required
+                          value={formEventCode}
+                          onChange={e => setFormEventCode(e.target.value)}
+                          placeholder="e.g. EVT-PK-2026-CR01"
+                          className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-mono font-bold outline-none transition-all ${
+                            isEventCodeDuplicate
+                              ? 'border-rose-500 bg-rose-50/40 dark:bg-rose-950/30 text-rose-900 dark:text-rose-100'
+                              : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600'
+                          }`}
+                        />
+                        {isEventCodeDuplicate && (
+                          <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400">
+                            {isTh ? 'รหัส Event นี้มีอยู่ในระบบแล้ว' : 'Event Code already exists'}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Event Name */}
+                      <div className="md:col-span-7 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                            <Sparkles size={13} className={isEventNameDuplicate ? 'text-rose-600' : 'text-blue-600 dark:text-blue-400'} />
+                            <span>{isTh ? 'ชื่อ Event (Event Name)' : 'Event Name'} <span className="text-rose-500">*</span></span>
+                          </label>
+                          {isEventNameDuplicate && (
+                            <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400">
+                              {isTh ? 'ชื่อซ้ำในระบบ' : 'Duplicate Name'}
+                            </span>
+                          )}
+                        </div>
+                        <input
+                          type="text"
+                          required
+                          value={eventName}
+                          onChange={e => setEventName(e.target.value)}
+                          placeholder={isTh ? 'เช่น Annual Turnaround 2026 หรือ Heavy Lift CDU-1 Campaign' : 'e.g. Annual Turnaround 2026 Heavy Lift Campaign'}
+                          className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-bold outline-none transition-all ${
+                            isEventNameDuplicate
+                              ? 'border-rose-500 bg-rose-50/40 dark:bg-rose-950/30 text-rose-900 dark:text-rose-100'
+                              : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600'
+                          }`}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Event Type & Status */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                          <Layers size={13} className="text-blue-600 dark:text-blue-400" />
+                          <span>{isTh ? 'ประเภท Event (Event Category)' : 'Event Category'} <span className="text-rose-500">*</span></span>
+                        </label>
+                        <select
+                          value={formEventType}
+                          onChange={e => setFormEventType(e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-900 dark:text-slate-100 outline-none cursor-pointer"
+                        >
+                          <option value="Annual Turnaround (TA)">Annual Turnaround (TA) — หยุดซ่อมบำรุงใหญ่ประจำปี</option>
+                          <option value="Heavy Lift Campaign">Heavy Lift Campaign — แคมเปญงานยกเครื่องจักรหนัก</option>
+                          <option value="Major Overhaul">Major Overhaul — งานซ่อมบำรุงใหญ่ตามวาระ</option>
+                          <option value="Unit Pit-Stop / Mini-TA">Unit Pit-Stop / Mini-TA — งานหยุดซ่อมเฉพาะหน่วยผลิต</option>
+                          <option value="Catalyst & Reactor Rigging">Catalyst & Reactor Rigging — งานยกเปลี่ยนสารเร่งปฏิกิริยา</option>
+                          <option value="Emergency Shutdown">Emergency Shutdown — งานเครนฉุกเฉินนอกแผน</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                          <Activity size={13} className="text-emerald-600 dark:text-emerald-400" />
+                          <span>{isTh ? 'สถานะ Event (Event Status)' : 'Event Status'} <span className="text-rose-500">*</span></span>
+                        </label>
+                        <select
+                          value={formEventStatus}
+                          onChange={e => setFormEventStatus(e.target.value as any)}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-900 dark:text-slate-100 outline-none cursor-pointer"
+                        >
+                          <option value="Planning">{isTh ? 'Planning — อยู่ระหว่างวางแผนและจัดตารางเครน' : 'Planning — Lift Schedule & Fleet Planning'}</option>
+                          <option value="Active">{isTh ? 'Active — กำลังปฏิบัติงานยกหน้างาน' : 'Active — Field Lifting in Progress'}</option>
+                          <option value="Turnover Phase">{isTh ? 'Turnover Phase — อยู่ระหว่างตรวจสอบคืนพื้นที่และส่งมอบ' : 'Turnover Phase — Site Demobilization & Handover'}</option>
+                          <option value="Completed">{isTh ? 'Completed — ปิดแคมเปญเรียบร้อย' : 'Completed — Campaign Closed'}</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 2: Plant Scope & Target Area / Units */}
+                  <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                        <Building2 size={14} className="text-blue-600 dark:text-blue-400" />
+                        <span>{isTh ? 'โรงกลั่นที่จัด Event (Plant Scope)' : 'Refinery Plant Scope'} <span className="text-rose-500">*</span></span>
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        {(['Phra Khanong', 'Sriracha', 'All Plants'] as const).map(pOption => (
+                          <button
+                            key={pOption}
+                            type="button"
+                            onClick={() => setFormEventPlant(pOption)}
+                            className={`p-2.5 rounded-xl border-2 flex items-center justify-between transition-all cursor-pointer text-left ${
+                              formEventPlant === pOption
+                                ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-500 shadow-2xs'
+                                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`w-7 h-7 rounded-lg text-[11px] font-bold flex items-center justify-center shrink-0 ${
+                                formEventPlant === pOption ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                              }`}>
+                                {pOption === 'Phra Khanong' ? 'PK' : pOption === 'Sriracha' ? 'SR' : 'ALL'}
+                              </span>
+                              <div className="min-w-0">
+                                <div className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">{pOption}</div>
+                                <div className="text-[10px] text-slate-400 truncate">
+                                  {pOption === 'Phra Khanong'
+                                    ? (isTh ? 'โรงกลั่นพระโขนง' : 'Bangkok')
+                                    : pOption === 'Sriracha'
+                                      ? (isTh ? 'โรงกลั่นศรีราชา' : 'Chonburi')
+                                      : (isTh ? 'ครอบคลุมทั้ง 2 โรงกลั่น' : 'Both Refineries')}
+                                </div>
+                              </div>
+                            </div>
+                            {formEventPlant === pOption && <CheckCircle2 size={15} className="text-blue-600 dark:text-blue-400 shrink-0" />}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Target Units Multi-select */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                          <MapPin size={14} className="text-blue-600 dark:text-blue-400" />
+                          <span>{isTh ? 'เขตหน่วยผลิตเป้าหมาย (Target Area / Units)' : 'Target Area / Units'} <span className="text-rose-500">*</span></span>
+                        </label>
+                        <span className="text-[10px] text-slate-400">
+                          {isTh ? `เลือกแล้ว ${formEventTargetUnits.length} เขตพื้นที่` : `${formEventTargetUnits.length} selected`}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        {CRANE_LOCATION_AREAS.map(unitOpt => {
+                          const isChecked = formEventTargetUnits.includes(unitOpt);
+                          return (
+                            <button
+                              key={unitOpt}
+                              type="button"
+                              onClick={() => toggleEventTargetUnit(unitOpt)}
+                              className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                                isChecked
+                                  ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-500 text-blue-900 dark:text-blue-200 font-bold'
+                                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                              }`}
+                            >
+                              <span className="text-[11px] leading-tight truncate">{unitOpt}</span>
+                              <span className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border ${
+                                isChecked ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300 dark:border-slate-600'
+                              }`}>
+                                {isChecked && <Check size={11} />}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 3: Schedule Window, Lead Crane Planner & Milestone */}
+                  <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                          <Calendar size={14} className="text-blue-600 dark:text-blue-400" />
+                          <span>{isTh ? 'วันเริ่มต้น Event (Start Date)' : 'Event Start Date'} <span className="text-rose-500">*</span></span>
+                        </label>
+                        <input
+                          type="date"
+                          required
+                          value={eventStartDate}
+                          onChange={e => setEventStartDate(e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium text-slate-900 dark:text-slate-100 outline-none cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                            <Clock size={14} className="text-amber-600 dark:text-amber-400" />
+                            <span>{isTh ? 'วันสิ้นสุดแคมเปญ / เป้าหมายส่งมอบ (Target End)' : 'Target Completion Date'} <span className="text-rose-500">*</span></span>
+                          </label>
+                          {eventDurationDays !== null && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-mono">
+                              {eventDurationDays} {isTh ? 'วัน' : 'Days'}
+                            </span>
+                          )}
+                        </div>
+                        <input
+                          type="date"
+                          required
+                          value={eventTargetDate}
+                          onChange={e => setEventTargetDate(e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium text-slate-900 dark:text-slate-100 outline-none cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                          <UserCheck size={14} className="text-blue-600 dark:text-blue-400" />
+                          <span>{isTh ? 'ผู้รับผิดชอบจัดตารางเครน (Lead Crane Planner)' : 'Lead Crane Planner / Coordinator'} <span className="text-rose-500">*</span></span>
+                        </label>
+                        <select
+                          value={formEventCoordinator}
+                          onChange={e => setFormEventCoordinator(e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium text-slate-900 dark:text-slate-100 outline-none cursor-pointer"
+                        >
+                          {REVIEW_BY_OPTIONS.map(lead => (
+                            <option key={lead} value={lead}>{lead}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                          <Award size={14} className="text-amber-600 dark:text-amber-400" />
+                          <span>{isTh ? 'หมุดหมายสำคัญของแคมเปญยก (Key Lifting Milestone)' : 'Key Lifting Milestone'}</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={eventMilestone}
+                          onChange={e => setEventMilestone(e.target.value)}
+                          placeholder={isTh ? 'เช่น ยกชุดแลกเปลี่ยนความร้อนและหัวหอกลั่นครบ 100%' : 'e.g. All Heavy Column & Exchanger Bundle Lifts Completed'}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-slate-100 outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                        <FileText size={14} className="text-blue-600 dark:text-blue-400" />
+                        <span>{isTh ? 'รายละเอียดขอบเขตงานเครนใน Event (Campaign Scope & Safety Objectives)' : 'Event Scope & Heavy Lift Objectives'}</span>
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={formEventDescription}
+                        onChange={e => setFormEventDescription(e.target.value)}
+                        placeholder={isTh ? 'ระบุขอบเขตงานเครน ขนาดพิกัดหลักที่ต้องใช้ และการประสานงานความปลอดภัย...' : 'Describe heavy lifting scope, target crane capacities (50T-500T), and rigging safety milestones...'}
+                        className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-slate-100 outline-none resize-y"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Event Form Action Bar */}
+                  <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleFillSampleEvent}
+                        className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer border border-slate-200 dark:border-slate-700 flex items-center gap-1.5"
+                      >
+                        <Sparkles size={13} className="text-blue-500" />
+                        <span>{isTh ? 'เติมตัวอย่าง Event' : 'Fill Sample Event'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={resetEventForm}
+                        className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1"
+                      >
+                        <RefreshCw size={13} />
+                        <span>{isTh ? 'ล้างข้อมูล' : 'Reset'}</span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <button
+                        type="submit"
+                        disabled={!isEventFormValid}
+                        className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                          isEventFormValid
+                            ? 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white cursor-pointer shadow-xs'
+                            : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                        }`}
+                      >
+                        <Check size={15} />
+                        <span>{isTh ? 'บันทึกสร้าง Event' : 'Save Event'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={!isEventFormValid}
+                        onClick={(e) => handleCreateEventSubmit(e as any, true)}
+                        className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2 ${
+                          isEventFormValid
+                            ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/20 cursor-pointer active:scale-95'
+                            : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                        }`}
+                      >
+                        <Plus size={15} />
+                        <span>{isTh ? 'สร้าง Event & ไปหน้าสร้างคำขอเครน' : 'Save Event & Create Crane Job'}</span>
+                        <ArrowRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+
+              {/* Right 5 Cols: Active Crane & Turnaround Event Registry */}
+              <div className="lg:col-span-5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 sm:p-6 flex flex-col space-y-4">
+                <div className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                      <Workflow size={18} className="text-blue-600 dark:text-blue-400" />
+                      <span>{isTh ? 'ทะเบียน Event งานเครน (Active Event Registry)' : 'Active Crane Event Registry'}</span>
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      {isTh ? 'คลิกเลือก Event เพื่อเปิดใบงานเครนเดี่ยวหรือนำเข้างานเครนแบบกลุ่มได้ทันที' : 'Select any event below to add single or bulk crane jobs directly.'}
+                    </p>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                    {filteredRegistryEvents.length} {isTh ? 'รายการ' : 'Events'}
+                  </span>
+                </div>
+
+                {/* Filter & Search Bar */}
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <div className="relative flex-1">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={eventRegistrySearch}
+                      onChange={e => setEventRegistrySearch(e.target.value)}
+                      placeholder={isTh ? 'ค้นหาชื่อหรือรหัส Event...' : 'Search event name or code...'}
+                      className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs outline-none"
+                    />
+                  </div>
+                  <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-0.5 border border-slate-200 dark:border-slate-700 shrink-0">
+                    {(['All', 'Phra Khanong', 'Sriracha'] as const).map(pf => (
+                      <button
+                        key={pf}
+                        type="button"
+                        onClick={() => setEventRegistryPlantFilter(pf)}
+                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer transition-all ${
+                          eventRegistryPlantFilter === pf
+                            ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-300 shadow-2xs'
+                            : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                        }`}
+                      >
+                        {pf === 'All' ? (isTh ? 'ทั้งหมด' : 'All') : pf === 'Phra Khanong' ? 'PK' : 'SR'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Event Cards List */}
+                <div className="space-y-3 max-h-[560px] overflow-y-auto custom-scrollbar pr-1">
+                  {filteredRegistryEvents.map(ev => {
+                    const linkedCraneJobs = savedJobs.filter(j => j.eventName === ev.eventName);
+                    const totalCapacityTons = linkedCraneJobs.reduce((acc, j) => acc + (Number(j.capacityRequired || j.capacity) || 0), 0);
+                    const activeOrDoneCount = linkedCraneJobs.filter(j => j.status === 'Completed' || j.status === 'Approved' || j.status === 'Assigned' || j.status === 'Optimized').length;
+                    const progressPct = linkedCraneJobs.length > 0 ? Math.round((activeOrDoneCount / linkedCraneJobs.length) * 100) : 0;
+                    const isSelected = formSelectedEventName === ev.eventName;
+
+                    return (
+                      <div
+                        key={ev.id}
+                        className={`p-4 rounded-2xl border transition-all space-y-3 ${
+                          isSelected
+                            ? 'border-blue-500 bg-blue-50/30 dark:bg-blue-950/20 shadow-xs'
+                            : 'border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-slate-300 dark:hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-200/80 dark:bg-slate-700 text-slate-800 dark:text-slate-200">
+                                {ev.eventCode}
+                              </span>
+                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                ev.plant === 'Sriracha'
+                                  ? 'bg-sky-100 dark:bg-sky-950/70 text-sky-700 dark:text-sky-300'
+                                  : ev.plant === 'All Plants'
+                                    ? 'bg-purple-100 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300'
+                                    : 'bg-blue-100 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300'
+                              }`}>
+                                {ev.plant}
+                              </span>
+                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                ev.status === 'Completed'
+                                  ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                                  : ev.status === 'Turnover Phase'
+                                    ? 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+                                    : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300'
+                              }`}>
+                                {ev.status}
+                              </span>
+                            </div>
+                            <h4 className="text-sm font-black text-slate-900 dark:text-slate-100 truncate">
+                              {ev.eventName}
+                            </h4>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                              {ev.eventType} • {ev.startDate} → {ev.targetTurnoverDate}
+                            </p>
+                          </div>
+
+                          {linkedCraneJobs.length === 0 && (
+                            <button
+                              type="button"
+                              onClick={() => deleteEvent(ev.id)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                              title={isTh ? 'ลบ Event นี้' : 'Delete Event'}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Crane Jobs & Capacity Metrics */}
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-slate-500 font-medium">
+                              {isTh ? `งานเครนใน Event: ${linkedCraneJobs.length} งาน (${totalCapacityTons}T)` : `Linked Crane Jobs: ${linkedCraneJobs.length} (${totalCapacityTons}T)`}
+                            </span>
+                            <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
+                              {activeOrDoneCount}/{linkedCraneJobs.length} Ready ({progressPct}%)
+                            </span>
+                          </div>
+                          <div className="w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                            <div
+                              className="h-full bg-blue-600 rounded-full transition-all"
+                              style={{ width: `${progressPct}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Quick Action Buttons */}
+                        <div className="flex items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              applyEventToCraneForm(ev);
+                              setActiveMode('single');
+                            }}
+                            className="flex-1 py-1.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
+                          >
+                            <Plus size={13} />
+                            <span>{isTh ? 'สร้างคำขอเครนใน Event นี้' : '+ Add Crane Job'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFormSelectedEventName(ev.eventName);
+                              setActiveMode('bulk');
+                            }}
+                            className="py-1.5 px-3 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-[11px] font-bold flex items-center gap-1 transition cursor-pointer"
+                          >
+                            <Layers size={12} className="text-blue-600 dark:text-blue-400" />
+                            <span>{isTh ? 'นำเข้ากลุ่ม' : 'Bulk Import'}</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : activeMode === 'bulk' ? (
             /* DEDICATED MODULE-SPECIFIC BULK INGESTION COMPONENT */
             !isScaffolding ? (
               <BulkCraneJobIngestion
+                selectedEventName={formSelectedEventName}
+                onSelectEventName={setFormSelectedEventName}
+                onOpenCreateEvent={() => setActiveMode('event')}
                 onNavigateToRequests={onNavigateToRequests}
                 onSwitchToSingle={() => setActiveMode('single')}
               />
@@ -943,12 +1766,176 @@ export default function CreateJob({ isScaffolding = false, onNavigateToRequests,
                   </h2>
                   <p className="text-xs text-slate-500 mt-1">
                     {isTh
-                      ? 'กำหนดข้อมูลอุปกรณ์โรงกลั่น วันเวลาปฏิบัติงาน ข้อกำหนดขนาดเครน และปักหมุดพิกัดบนผังโรงงาน'
-                      : 'Configure turnaround milestone, crane technical capacity, schedule window, and plot coordinates.'}
+                      ? 'เลือก Event เป้าหมาย กำหนดข้อมูลอุปกรณ์โรงกลั่น วันเวลาปฏิบัติงาน ข้อกำหนดขนาดเครน และปักหมุดพิกัดบนผังโรงงาน'
+                      : 'Select target turnaround event, configure crane technical capacity, schedule window, and plot coordinates.'}
                   </p>
                 </div>
 
                 <form onSubmit={handleSingleSubmit} className="space-y-6">
+
+                  {/* STEP 0: EVENT SELECTION & INLINE QUICK CREATE EVENT */}
+                  <div className="p-4 sm:p-5 rounded-2xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/80 dark:border-blue-800/60 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <label className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                        <Calendar size={15} className="text-blue-600 dark:text-blue-400" />
+                        <span>{isTh ? 'เลือก Event งานเครน / รอบซ่อมบำรุงที่สังกัด (Turnaround / Crane Event)' : 'Select Turnaround / Crane Event'} <span className="text-rose-500 font-bold">*</span></span>
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setIsQuickEventOpen(!isQuickEventOpen)}
+                          className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold flex items-center gap-1 transition cursor-pointer"
+                        >
+                          <Plus size={12} />
+                          <span>{isTh ? 'สร้าง Event ด่วน (Quick Event)' : 'Quick New Event'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveMode('event')}
+                          className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700 text-[11px] font-bold hover:bg-blue-50 transition cursor-pointer"
+                        >
+                          {isTh ? 'จัดการ Event ทั้งหมด' : 'Manage Events'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                      <div className="md:col-span-8">
+                        <select
+                          value={formSelectedEventName}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setFormSelectedEventName(val);
+                            const found = events.find(ev => ev.eventName === val);
+                            if (found) {
+                              applyEventToCraneForm(found);
+                            }
+                          }}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500/20 outline-none cursor-pointer"
+                        >
+                          {allAvailableEventNames.map(eName => {
+                            const evObj = events.find(ev => ev.eventName === eName);
+                            return (
+                              <option key={eName} value={eName}>
+                                {eName}{evObj ? ` (${evObj.eventCode} • ${evObj.plant})` : ''}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+
+                      <div className="md:col-span-4 flex justify-end">
+                        {activeSelectedEventRecord && (
+                          <button
+                            type="button"
+                            onClick={() => applyEventToCraneForm(activeSelectedEventRecord)}
+                            className="w-full py-2 px-3 rounded-xl bg-white dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-slate-750 border border-blue-200 dark:border-blue-800 text-[11px] font-bold text-blue-700 dark:text-blue-300 flex items-center justify-center gap-1.5 transition cursor-pointer"
+                          >
+                            <RefreshCw size={12} />
+                            <span>{isTh ? 'ดึงค่าโรงกลั่น & วันที่จาก Event' : 'Sync Plant & Dates'}</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {activeSelectedEventRecord && (
+                      <div className="flex items-center justify-between gap-2 flex-wrap text-[11px] text-slate-600 dark:text-slate-400 pt-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono font-bold text-blue-700 dark:text-blue-300">{activeSelectedEventRecord.eventCode}</span>
+                          <span>•</span>
+                          <span>{activeSelectedEventRecord.eventType}</span>
+                          <span>•</span>
+                          <span>{isTh ? 'ช่วงเวลา:' : 'Window:'} <strong>{activeSelectedEventRecord.startDate} → {activeSelectedEventRecord.targetTurnoverDate}</strong></span>
+                        </div>
+                        {activeSelectedEventRecord.milestone && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300">
+                            🎯 {activeSelectedEventRecord.milestone}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Inline Quick Create Event Drawer */}
+                    {isQuickEventOpen && (
+                      <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-blue-300 dark:border-blue-700 space-y-3 animate-in fade-in duration-150">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-blue-800 dark:text-blue-300 flex items-center gap-1.5">
+                            <Sparkles size={13} />
+                            <span>{isTh ? 'สร้าง Event ใหม่แบบด่วน (ผูกกับคำขอเครนนี้ทันที)' : 'Quick Create New Event & Bind'}</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setIsQuickEventOpen(false)}
+                            className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                          <input
+                            type="text"
+                            value={quickEventCode}
+                            onChange={e => setQuickEventCode(e.target.value)}
+                            placeholder={isTh ? 'รหัส Event (ว่าง=สร้างอัตโนมัติ)' : 'Event Code (Auto if blank)'}
+                            className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono outline-none"
+                          />
+                          <input
+                            type="text"
+                            value={quickEventName}
+                            onChange={e => setQuickEventName(e.target.value)}
+                            placeholder={isTh ? 'ชื่อ Event ใหม่ *' : 'New Event Name *'}
+                            className="sm:col-span-2 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold outline-none"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                          <select
+                            value={quickEventType}
+                            onChange={e => setQuickEventType(e.target.value)}
+                            className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs outline-none cursor-pointer"
+                          >
+                            <option value="Annual Turnaround (TA)">Annual Turnaround (TA)</option>
+                            <option value="Heavy Lift Campaign">Heavy Lift Campaign</option>
+                            <option value="Major Overhaul">Major Overhaul</option>
+                            <option value="Unit Pit-Stop / Mini-TA">Unit Pit-Stop / Mini-TA</option>
+                            <option value="Emergency Shutdown">Emergency Shutdown</option>
+                          </select>
+                          <input
+                            type="date"
+                            value={quickEventStart}
+                            onChange={e => setQuickEventStart(e.target.value)}
+                            className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs outline-none"
+                          />
+                          <input
+                            type="date"
+                            value={quickEventTarget}
+                            onChange={e => setQuickEventTarget(e.target.value)}
+                            className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs outline-none"
+                          />
+                        </div>
+
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setIsQuickEventOpen(false)}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                          >
+                            {isTh ? 'ยกเลิก' : 'Cancel'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!quickEventName.trim()}
+                            onClick={handleQuickCreateEvent}
+                            className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                          >
+                            <Check size={13} />
+                            <span>{isTh ? 'บันทึกและเลือก Event นี้' : 'Save & Select Event'}</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   {/* STEP 1: GENERAL & WORK ORDER SPECIFICATION */}
                   <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 space-y-4">
@@ -1995,6 +2982,12 @@ export default function CreateJob({ isScaffolding = false, onNavigateToRequests,
                   </div>
 
                   <div className="space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">{isTh ? 'สังกัด Event:' : 'Target Event:'}</span>
+                      <span className="font-bold text-blue-700 dark:text-blue-300 truncate max-w-[180px]" title={formSelectedEventName}>
+                        {formSelectedEventName || '-'}
+                      </span>
+                    </div>
                     <div className="flex items-center justify-between">
                       <span className="text-slate-400">{isTh ? 'เลขที่ใบสั่งงาน (WO):' : 'WO Number:'}</span>
                       <span className="font-mono font-bold text-blue-600 dark:text-blue-400">{woNumber || '-'}</span>

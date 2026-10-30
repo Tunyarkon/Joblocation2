@@ -35,7 +35,7 @@ export default function Header({
       return isTh ? 'ตั้งค่าระบบ (Settings)' : 'Setting and Config';
     }
     if (activeView.startsWith('turnover-') || activeView.startsWith('job-location')) {
-      return isTh ? 'ส่งมอบระบบ (Turn Over)' : 'Turn Over';
+      return isTh ? 'ส่งมอบระบบ (Turnover S/D & T/A)' : 'Turnover S/D & T/A';
     }
     if (activeView.startsWith('scaffold-')) {
       return isTh ? 'ระบบจัดการนั่งร้าน' : 'Scaffolding Management';
@@ -43,7 +43,7 @@ export default function Header({
     if (['list', 'optimize', 'plan', 'create', 'calendar', 'job-list'].includes(activeView)) {
       return isTh ? 'งานเครน (Crane Job)' : 'Crane Job';
     }
-    return isTh ? 'ส่งมอบระบบ (Turn Over)' : 'Turn Over';
+    return isTh ? 'ส่งมอบระบบ (Turnover S/D & T/A)' : 'Turnover S/D & T/A';
   };
 
   const getBreadcrumbPage = () => {
@@ -56,7 +56,7 @@ export default function Header({
     if (activeView === 'scaffold-dashboard') return isTh ? 'แดชบอร์ดภาพรวมนั่งร้าน' : 'Scaffolding Dashboard';
     if (activeView === 'scaffold-tracking') return isTh ? 'จัดการและติดตามนั่งร้าน' : 'Scaffolding Tracking';
     if (activeView === 'scaffold-planning-dashboard') return isTh ? 'วางแผนงานนั่งร้าน' : 'Scaffolding Planning';
-    if (activeView === 'job-location-workspace' || activeView === 'job-location-turnover' || activeView === 'job-location') return 'Turnover (T/O)';
+    if (activeView === 'job-location-workspace' || activeView === 'job-location-turnover' || activeView === 'job-location') return 'Turnover S/D & T/A';
     if (activeView === 'job-location-create') return isTh ? 'สร้าง Event & Job' : 'Create Event & Job';
     if (activeView === 'turnover-event-list' || activeView === 'job-location-events') return isTh ? 'รายการ Event & Job' : 'Event & Job List';
     if (activeView === 'job-location-settings') return isTh ? 'ตั้งค่าโรงงาน & สิทธิ์บทบาท' : 'Plant & Role Settings';

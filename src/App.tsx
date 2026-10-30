@@ -33,6 +33,7 @@ import LoginPage from './components/LoginPage';
 import HomePortal from './components/HomePortal';
 import ScaffoldingSF01CreateJob from './components/scaffolding/ScaffoldingSF01CreateJob';
 import ScaffoldingSF02RequestsList from './components/scaffolding/ScaffoldingSF02RequestsList';
+import ScaffoldingReviewPlanOptimize from './components/scaffolding/ScaffoldingReviewPlanOptimize';
 import { getAllScaffolding, subscribeToScaffoldingStore, ScaffoldingItem } from './data/scaffoldingData';
 import { useThemeGate, setGlobalThemeGate } from './utils/themeGate';
 
@@ -347,10 +348,17 @@ function AppContent() {
               onNavigateToList={() => setActiveView('scaffold-list')}
             />
           )}
-          {(activeView === 'scaffold-list' || activeView === 'scaffold-sf02' || activeView === 'scaffold-dashboard' || activeView === 'scaffold-tracking' || activeView === 'scaffold-job-list' || activeView === 'scaffold-calendar' || activeView === 'scaffold-plan' || activeView === 'scaffold-planning-dashboard' || activeView === 'scaffold-optimize' || activeView === 'scaffold-master') && (
+          {(activeView === 'scaffold-list' || activeView === 'scaffold-sf02' || activeView === 'scaffold-dashboard' || activeView === 'scaffold-tracking' || activeView === 'scaffold-job-list' || activeView === 'scaffold-calendar' || activeView === 'scaffold-plan' || activeView === 'scaffold-planning-dashboard' || activeView === 'scaffold-master') && (
             <ScaffoldingSF02RequestsList
               onNavigateToCreate={() => setActiveView('scaffold-create')}
               globalPlantFilter={selectedPlantFilter}
+            />
+          )}
+          {activeView === 'scaffold-optimize' && (
+            <ScaffoldingReviewPlanOptimize
+              globalPlantFilter={selectedPlantFilter}
+              onNavigateToList={() => setActiveView('scaffold-list')}
+              onNavigateToCreate={() => setActiveView('scaffold-create')}
             />
           )}
 
@@ -491,16 +499,16 @@ function AppContent() {
               onNavigateToFunctionalLocation={() => setActiveView('functional-location')}
             />
           )}
-          {(activeView === 'optimize' || activeView === 'scaffold-optimize') && (
+          {activeView === 'optimize' && (
             <ReviewPlanOptimize
               globalPlantFilter={selectedPlantFilter}
               jobs={planningJobs}
               equipment={equipmentFleet}
               onUpdateJob={handleUpdatePlanningJob}
               onBatchUpdateJobs={handleBatchUpdatePlanningJobs}
-              onSelectMarkingLocation={() => setActiveView(activeView.startsWith('scaffold-') ? 'scaffold-planning-dashboard' : 'planning-dashboard')}
-              onNavigateToDashboard={() => setActiveView(activeView.startsWith('scaffold-') ? 'scaffold-planning-dashboard' : 'planning-dashboard')}
-              isScaffolding={activeView.startsWith('scaffold-')}
+              onSelectMarkingLocation={() => setActiveView('planning-dashboard')}
+              onNavigateToDashboard={() => setActiveView('planning-dashboard')}
+              isScaffolding={false}
             />
           )}
           {activeView === 'optimize-v2' && (

@@ -156,12 +156,12 @@ export default function HomePortal({ onNavigate, globalPlantFilter = 'All' }: Ho
             </div>
 
             <h2 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-wider mt-5 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
-              TURN OVER
+              TURNOVER S/D & T/A
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 line-clamp-2 max-w-[240px]">
               {isTh 
-                ? 'จัดการรายการงานและส่งมอบระบบ (Turn Over T/O)' 
-                : 'Turn Over & System Handover Management'}
+                ? 'จัดการรายการงานและส่งมอบระบบ (Turnover S/D & T/A)' 
+                : 'Turnover S/D & T/A System Handover Management'}
             </p>
           </div>
 

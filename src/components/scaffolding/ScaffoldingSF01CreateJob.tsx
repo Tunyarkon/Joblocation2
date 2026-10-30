@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useLanguage } from '../../context/LanguageContext';
+import { usePlantTurnShared } from '../../context/PlantTurnSharedContext';
 import { 
   ScaffoldingSFJob, 
   addScaffoldingJob, 
@@ -67,12 +68,179 @@ export const QUICK_EQUIPMENT_PRESETS = [
 export default function ScaffoldingSF01CreateJob({ onNavigateToList }: ScaffoldingSF01CreateJobProps) {
   const { language, setLanguage } = useLanguage();
   const isTh = language === 'th';
+  const { events, createEvent, deleteEvent, checkEventExists } = usePlantTurnShared();
 
   // Landing Page vs Dedicated Creation Form (Default to true: enters form directly)
   const [isCreateFormOpen, setIsCreateFormOpen] = useState<boolean>(true);
 
-  // Mode: Single Request vs Bulk Insert
-  const [activeTab, setActiveTab] = useState<'single' | 'bulk'>('single');
+  // Mode: Event vs Single Request vs Bulk Insert
+  const [activeTab, setActiveTab] = useState<'event' | 'single' | 'bulk'>('single');
+
+  // Selected Target Event State
+  const [selectedEventName, setSelectedEventName] = useState<string>('Annual Turnaround 2026');
+  const selectedEventObj = useMemo(
+    () => events.find(ev => ev.eventName === selectedEventName) || events[0],
+    [events, selectedEventName]
+  );
+
+  // Create Event Form State (Tab 1: Create Event)
+  const [newEventCode, setNewEventCode] = useState<string>('EVT-SCF-2026-05');
+  const [newEventName, setNewEventName] = useState<string>('');
+  const [newEventCategory, setNewEventCategory] = useState<string>('Scaffolding Campaign & Rental Optimization');
+  const [newEventPlant, setNewEventPlant] = useState<'Phra Khanong' | 'Sriracha' | 'All Plants'>('Sriracha');
+  const [newEventAreas, setNewEventAreas] = useState<string[]>(['S2 - APS-1, APS-2, FCCU, GOHF-3']);
+  const [newEventStartDate, setNewEventStartDate] = useState<string>('2026-10-15');
+  const [newEventEndDate, setNewEventEndDate] = useState<string>('2026-11-15');
+  const [newEventLead, setNewEventLead] = useState<string>('Wichai S. (Lead Scaffold & Civil PE)');
+  const [newEventStatus, setNewEventStatus] = useState<'Planning' | 'Active' | 'Completed'>('Active');
+  const [newEventMilestone, setNewEventMilestone] = useState<string>('Green Tag 100% Column 11-C-101 & Zero Overdue Off-Hire');
+  const [newEventDesc, setNewEventDesc] = useState<string>('');
+  const [eventBannerMsg, setEventBannerMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Inline Quick Create Event Drawer in Single Job Form
+  const [isQuickEventOpen, setIsQuickEventOpen] = useState<boolean>(false);
+  const [quickEventName, setQuickEventName] = useState<string>('');
+  const [quickEventCode, setQuickEventCode] = useState<string>('EVT-SCF-2026-09');
+  const [quickEventCategory, setQuickEventCategory] = useState<string>('Scaffolding Campaign & Rental Optimization');
+
+  const isDuplicateEventCode = useMemo(
+    () => Boolean(newEventCode.trim()) && events.some(e => e.eventCode.toLowerCase() === newEventCode.trim().toLowerCase()),
+    [events, newEventCode]
+  );
+  const isDuplicateEventName = useMemo(
+    () => Boolean(newEventName.trim()) && checkEventExists(newEventName.trim()),
+    [newEventName, checkEventExists]
+  );
+
+  const eventDurationDays = useMemo(() => {
+    if (!newEventStartDate || !newEventEndDate) return 0;
+    const s = new Date(newEventStartDate);
+    const e = new Date(newEventEndDate);
+    const diff = Math.round((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    return diff > 0 ? diff : 0;
+  }, [newEventStartDate, newEventEndDate]);
+
+  const handleGenerateEventCode = () => {
+    const rand = String(Math.floor(10 + Math.random() * 89));
+    setNewEventCode(`EVT-SCF-2026-${rand}`);
+  };
+
+  const toggleEventArea = (area: string) => {
+    setNewEventAreas(prev =>
+      prev.includes(area) ? prev.filter(a => a !== area) : [...prev, area]
+    );
+  };
+
+  const handleLoadSampleEvent = () => {
+    const suffix = Math.floor(10 + Math.random() * 89);
+    setNewEventCode(`EVT-SCF-2026-${suffix}`);
+    setNewEventName(isTh ? `โครงการนั่งร้านรอบหอกลั่น S2 Turnaround #${suffix}` : `S2 Column Ring & Vessel Access Campaign #${suffix}`);
+    setNewEventCategory('Vessel & Column Access Overhaul');
+    setNewEventPlant('Sriracha');
+    setNewEventAreas(['S2 - APS-1, APS-2, FCCU, GOHF-3', 'S1 - CCR, SRU, TGCU, Utility']);
+    setNewEventStartDate('2026-10-18');
+    setNewEventEndDate('2026-11-17');
+    setNewEventLead('Wichai S. (Lead Scaffold & Civil PE)');
+    setNewEventStatus('Active');
+    setNewEventMilestone('Green Tag Handover 11-C-101 & 12-R-201 before Catalyst Unloading');
+    setNewEventDesc(
+      isTh
+        ? 'แผนงานติดตั้งและควบคุมวันเช่านั่งร้านแบบล้อมรอบหอกลั่น 360 องศา และนั่งร้านรับน้ำหนักสูง (Heavy Duty) สำหรับงานหยุดซ่อมบำรุงหน่วยกลั่น S2'
+        : 'Coordinated 360° column ring and heavy-duty engineered scaffolding erection, Green Tag inspection, and off-hire cost control campaign for S2 Turnaround.'
+    );
+    setEventBannerMsg(null);
+  };
+
+  const handleResetEventForm = () => {
+    handleGenerateEventCode();
+    setNewEventName('');
+    setNewEventCategory('Scaffolding Campaign & Rental Optimization');
+    setNewEventPlant('Sriracha');
+    setNewEventAreas(['S2 - APS-1, APS-2, FCCU, GOHF-3']);
+    setNewEventStartDate('2026-10-15');
+    setNewEventEndDate('2026-11-15');
+    setNewEventLead('Wichai S. (Lead Scaffold & Civil PE)');
+    setNewEventStatus('Active');
+    setNewEventMilestone('');
+    setNewEventDesc('');
+    setEventBannerMsg(null);
+  };
+
+  const handleSaveScaffoldEvent = (switchToSingleAfter: boolean) => {
+    if (!newEventName.trim()) {
+      setEventBannerMsg({
+        type: 'error',
+        text: isTh ? 'กรุณาระบุชื่อ Event (Event Name)' : 'Please enter an Event Name.'
+      });
+      return;
+    }
+    if (isDuplicateEventName || isDuplicateEventCode) {
+      setEventBannerMsg({
+        type: 'error',
+        text: isTh ? 'ชื่อ Event หรือรหัส Event ซ้ำกับที่มีอยู่ในระบบ' : 'Event Name or Event Code already exists.'
+      });
+      return;
+    }
+
+    const created = createEvent({
+      eventCode: newEventCode.trim() || `EVT-SCF-2026-${Math.floor(10 + Math.random() * 89)}`,
+      eventName: newEventName.trim(),
+      eventType: newEventCategory,
+      plant: newEventPlant,
+      targetUnits: newEventAreas.length > 0 ? newEventAreas : ['S2 - APS-1, APS-2, FCCU, GOHF-3'],
+      startDate: newEventStartDate,
+      targetTurnoverDate: newEventEndDate,
+      coordinator: newEventLead.trim() || 'Lead Scaffold Coordinator',
+      status: newEventStatus,
+      milestone: newEventMilestone.trim() || '100% Green Tag & Zero Overdue Off-Hire',
+      description: newEventDesc.trim() || `${newEventCategory} (${newEventPlant})`
+    });
+
+    setSelectedEventName(created.eventName);
+    if (newEventPlant === 'Phra Khanong' || newEventPlant === 'Sriracha') {
+      setSelectedPlant(newEventPlant);
+    }
+    if (newEventStartDate) {
+      setRequiredDate(newEventStartDate);
+    }
+    if (newEventEndDate) {
+      setOffHireDate(newEventEndDate);
+    }
+
+    setEventBannerMsg({
+      type: 'success',
+      text: isTh
+        ? `สร้าง Event "${newEventName.trim()}" (${newEventCode.trim()}) สำเร็จและพร้อมผูกกับใบงานนั่งร้านแล้ว!`
+        : `Event "${newEventName.trim()}" (${newEventCode.trim()}) created and bound for Scaffolding Job requests!`
+    });
+
+    if (switchToSingleAfter) {
+      setActiveTab('single');
+    }
+  };
+
+  const handleQuickCreateEvent = () => {
+    if (!quickEventName.trim()) return;
+    const created = createEvent({
+      eventCode: quickEventCode.trim() || `EVT-SCF-2026-${Math.floor(10 + Math.random() * 89)}`,
+      eventName: quickEventName.trim(),
+      eventType: quickEventCategory,
+      plant: selectedPlant,
+      targetUnits: [locationArea || 'S2 - APS-1, APS-2, FCCU, GOHF-3'],
+      startDate: requiredDate || '2026-10-15',
+      targetTurnoverDate: offHireDate || '2026-11-15',
+      coordinator: 'Wichai S. (Lead Scaffold & Civil PE)',
+      status: 'Active',
+      milestone: 'Green Tag Handover & Rental Control',
+      description: `Created from Scaffolding SF01 Form (${selectedPlant})`
+    });
+    if (created) {
+      setSelectedEventName(created.eventName);
+      setQuickEventName('');
+      setQuickEventCode(`EVT-SCF-2026-${Math.floor(10 + Math.random() * 89)}`);
+      setIsQuickEventOpen(false);
+    }
+  };
 
   // Submit Feedback Banner & Link Info
   const [submittedJobId, setSubmittedJobId] = useState<string | null>(null);
@@ -387,6 +555,8 @@ export default function ScaffoldingSF01CreateJob({ onNavigateToList }: Scaffoldi
     const newJob: ScaffoldingSFJob = {
       id: jobId.trim() || `SF-2026-${Math.floor(1000 + Math.random() * 9000)}`,
       jobId: jobId.trim() || `SF-2026-${Math.floor(1000 + Math.random() * 9000)}`,
+      eventName: selectedEventName || 'Annual Turnaround 2026',
+      eventCode: selectedEventObj?.eventCode || 'EVT-TA-2026-01',
       jobDescription: jobDescription.trim(),
       locationArea: locationArea as LocationAreaType,
       equipmentTag: equipmentTag.trim(),
@@ -675,6 +845,8 @@ export default function ScaffoldingSF01CreateJob({ onNavigateToList }: Scaffoldi
       validNewJobs.push({
         id: assignedId,
         jobId: assignedId,
+        eventName: selectedEventName || 'Annual Turnaround 2026',
+        eventCode: selectedEventObj?.eventCode || 'EVT-TA-2026-01',
         jobDescription: row.jobDescription || `งานนั่งร้านนำเข้าชุดที่ #${idx + 1}`,
         locationArea: 'S2 - APS-1, APS-2, FCCU, GOHF-3',
         equipmentTag: '11-C-101',
@@ -846,21 +1018,38 @@ export default function ScaffoldingSF01CreateJob({ onNavigateToList }: Scaffoldi
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300 font-mono">
-                CREATE JOB • SCAFFOLDING MODULE
+                CREATE EVENT & JOB • SCAFFOLDING MODULE
               </span>
               <span className="text-slate-400 text-xs">
-                · ระบบแจ้งขอติดตั้งนั่งร้านในเขตโรงงาน
+                · {isTh ? 'ระบบสร้าง Event โครงการและแจ้งขอติดตั้งนั่งร้านในเขตโรงกลั่น' : 'Scaffolding Event & Request Management'}
               </span>
             </div>
             <h2 className="text-lg sm:text-xl font-black text-slate-900 dark:text-slate-100 tracking-tight mt-0.5">
-              แบบฟอร์มขอติดตั้งนั่งร้าน (Scaffold Construction Request Form)
+              {activeTab === 'event'
+                ? (isTh ? 'สร้างและบริหารจัดการ Event งานนั่งร้าน (Create & Manage Scaffolding Event)' : 'Create & Manage Scaffolding / Turnaround Event')
+                : (isTh ? 'แบบฟอร์มขอติดตั้งนั่งร้าน (Scaffold Construction Request Form)' : 'Scaffold Construction Request Form')}
             </h2>
           </div>
         </div>
 
-        {/* Top Controls: Mode Switcher & Actions */}
+        {/* Top Controls: 3-Tab Mode Switcher & Actions */}
         <div className="flex items-center gap-2 flex-wrap">
           <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700 shrink-0 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => { setActiveTab('event'); setSubmittedJobId(null); }}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'event'
+                  ? 'bg-cyan-700 text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <Calendar size={14} />
+              <span>{isTh ? '1. สร้าง Event' : '1. Create Event'}</span>
+              <span className="bg-cyan-500/30 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">
+                {events.length}
+              </span>
+            </button>
             <button
               type="button"
               onClick={() => { setActiveTab('single'); setSubmittedJobId(null); }}
@@ -871,7 +1060,7 @@ export default function ScaffoldingSF01CreateJob({ onNavigateToList }: Scaffoldi
               }`}
             >
               <FileText size={14} />
-              <span>{isTh ? 'แบบฟอร์มเดี่ยว' : 'Single Job Form'}</span>
+              <span>{isTh ? '2. แบบฟอร์มเดี่ยว' : '2. Single Job Form'}</span>
             </button>
             <button
               type="button"
@@ -883,7 +1072,7 @@ export default function ScaffoldingSF01CreateJob({ onNavigateToList }: Scaffoldi
               }`}
             >
               <Layers size={14} />
-              <span>{isTh ? 'นำเข้าแบบกลุ่ม' : 'Bulk Ingestion'}</span>
+              <span>{isTh ? '3. นำเข้าแบบกลุ่ม' : '3. Bulk Ingestion'}</span>
               <span className="bg-cyan-600/30 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">50+</span>
             </button>
           </div>
@@ -940,6 +1129,510 @@ export default function ScaffoldingSF01CreateJob({ onNavigateToList }: Scaffoldi
       )}
 
       {/* =========================================================================
+          TAB 0: CREATE & MANAGE SCAFFOLDING / TURNAROUND EVENT WORKSPACE
+         ========================================================================= */}
+      {activeTab === 'event' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in duration-200">
+          {/* Left 7 Cols: Create Scaffolding Event Form */}
+          <div className="lg:col-span-7 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-6 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800">
+                    STEP 1 · SCAFFOLDING EVENT REGISTRY
+                  </span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    {isTh ? 'เชื่อมต่อกับระบบ Turn Over & Crane Job' : 'Synced with Turn Over & Crane Job'}
+                  </span>
+                </div>
+                <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white mt-1 flex items-center gap-2">
+                  <HardHat size={19} className="text-cyan-600 dark:text-cyan-400" />
+                  <span>
+                    {isTh
+                      ? 'สร้าง Event โครงการติดตั้งนั่งร้าน / Turnaround ใหม่'
+                      : 'Create New Scaffolding Campaign / Turnaround Event'}
+                  </span>
+                </h3>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleLoadSampleEvent}
+                  className="px-3 py-1.5 rounded-xl bg-cyan-50 dark:bg-cyan-950/60 hover:bg-cyan-100 dark:hover:bg-cyan-900/60 text-cyan-700 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <Sparkles size={13} />
+                  <span>{isTh ? 'ตัวอย่าง Event' : 'Sample Event'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetEventForm}
+                  className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <RefreshCw size={13} />
+                  <span>{isTh ? 'ล้างค่า' : 'Reset'}</span>
+                </button>
+              </div>
+            </div>
+
+            {eventBannerMsg && (
+              <div
+                className={`p-3.5 rounded-xl border text-xs font-bold flex items-center justify-between gap-3 ${
+                  eventBannerMsg.type === 'success'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200'
+                    : 'bg-rose-50 dark:bg-rose-950/50 border-rose-300 dark:border-rose-700 text-rose-800 dark:text-rose-200'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {eventBannerMsg.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                  <span>{eventBannerMsg.text}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEventBannerMsg(null)}
+                  className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+              {/* Event Code */}
+              <div className="sm:col-span-5 space-y-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center justify-between">
+                  <span>{isTh ? 'รหัส Event (Event Code)' : 'Event Code'} <span className="text-rose-500">*</span></span>
+                  <button
+                    type="button"
+                    onClick={handleGenerateEventCode}
+                    className="text-[10px] font-mono font-bold text-cyan-600 dark:text-cyan-400 hover:underline cursor-pointer"
+                  >
+                    {isTh ? 'สุ่มรหัส Auto' : 'Auto Code'}
+                  </button>
+                </label>
+                <input
+                  type="text"
+                  value={newEventCode}
+                  onChange={(e) => setNewEventCode(e.target.value)}
+                  placeholder="EVT-SCF-2026-05"
+                  className={`w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border text-xs font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 ${
+                    isDuplicateEventCode
+                      ? 'border-rose-500 focus:ring-rose-500/20'
+                      : 'border-slate-300 dark:border-slate-700 focus:ring-cyan-500/20 focus:border-cyan-500'
+                  }`}
+                />
+                {isDuplicateEventCode && (
+                  <p className="text-[11px] text-rose-500 font-semibold">
+                    {isTh ? 'รหัส Event นี้มีอยู่ในระบบแล้ว' : 'Event Code already exists'}
+                  </p>
+                )}
+              </div>
+
+              {/* Event Name */}
+              <div className="sm:col-span-7 space-y-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                  {isTh ? 'ชื่อ Event / โครงการนั่งร้าน (Event Name)' : 'Event / Campaign Name'} <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newEventName}
+                  onChange={(e) => setNewEventName(e.target.value)}
+                  placeholder={isTh ? 'เช่น โครงการนั่งร้านรอบหอกลั่น S2 Turnaround 2026' : 'e.g., S2 Column Ring & Vessel Access Campaign 2026'}
+                  className={`w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 ${
+                    isDuplicateEventName
+                      ? 'border-rose-500 focus:ring-rose-500/20'
+                      : 'border-slate-300 dark:border-slate-700 focus:ring-cyan-500/20 focus:border-cyan-500'
+                  }`}
+                />
+                {isDuplicateEventName && (
+                  <p className="text-[11px] text-rose-500 font-semibold">
+                    {isTh ? 'ชื่อ Event นี้ซ้ำกับในระบบ' : 'Event Name already exists'}
+                  </p>
+                )}
+              </div>
+
+              {/* Event Category */}
+              <div className="sm:col-span-6 space-y-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                  {isTh ? 'ประเภท Event (Category)' : 'Event Category'}
+                </label>
+                <select
+                  value={newEventCategory}
+                  onChange={(e) => setNewEventCategory(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500"
+                >
+                  <option value="Scaffolding Campaign & Rental Optimization">Scaffolding Campaign & Rental Optimization (บริหารงานนั่งร้าน)</option>
+                  <option value="Vessel & Column Access Overhaul">Vessel & Column Access Overhaul (นั่งร้านหอกลั่นและถังแรงดัน)</option>
+                  <option value="Annual Turnaround (TA)">Annual Turnaround (TA - หยุดซ่อมบำรุงใหญ่ประจำปี)</option>
+                  <option value="Major Overhaul">Major Overhaul (ซ่อมบำรุงใหญ่ตามวาระ)</option>
+                  <option value="Routine Shutdown">Routine Shutdown (หยุดซ่อมบำรุงตามแผน)</option>
+                  <option value="Emergency Maintenance">Emergency Maintenance (งานซ่อมฉุกเฉินเร่งด่วน)</option>
+                </select>
+              </div>
+
+              {/* Event Status */}
+              <div className="sm:col-span-6 space-y-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                  {isTh ? 'สถานะ Event (Status)' : 'Event Status'}
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['Planning', 'Active', 'Completed'] as const).map(st => (
+                    <button
+                      key={st}
+                      type="button"
+                      onClick={() => setNewEventStatus(st)}
+                      className={`py-2 px-2.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                        newEventStatus === st
+                          ? st === 'Active'
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                            : st === 'Planning'
+                              ? 'bg-amber-500 text-slate-950 border-amber-500 shadow-xs'
+                              : 'bg-cyan-700 text-white border-cyan-700 shadow-xs'
+                          : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                      }`}
+                    >
+                      {st === 'Planning' ? (isTh ? 'วางแผน' : 'Planning') : st === 'Active' ? (isTh ? 'กำลังดำเนินการ' : 'Active') : (isTh ? 'เสร็จสิ้น' : 'Completed')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Plant Scope */}
+              <div className="sm:col-span-12 space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                  {isTh ? 'ขอบเขตโรงกลั่น (Plant Scope)' : 'Target Plant Scope'}
+                </label>
+                <div className="grid grid-cols-3 gap-2.5">
+                  {(['Sriracha', 'Phra Khanong', 'All Plants'] as const).map(pl => (
+                    <button
+                      key={pl}
+                      type="button"
+                      onClick={() => setNewEventPlant(pl)}
+                      className={`py-2 px-3 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        newEventPlant === pl
+                          ? 'bg-cyan-700 text-white border-cyan-700 shadow-xs'
+                          : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-cyan-400'
+                      }`}
+                    >
+                      <Building2 size={14} />
+                      <span>
+                        {pl === 'Sriracha'
+                          ? (isTh ? 'ศรีราชา (Sriracha)' : 'Sriracha')
+                          : pl === 'Phra Khanong'
+                            ? (isTh ? 'พระโขนง (Phra Khanong)' : 'Phra Khanong')
+                            : (isTh ? 'ทุกโรงกลั่น (All Plants)' : 'All Plants')}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Multi-Select Target Area / Process Units */}
+              <div className="sm:col-span-12 space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center justify-between">
+                  <span>{isTh ? 'พื้นที่ปฏิบัติงาน / หน่วยกลั่น (Target Area / Units)' : 'Target Process Areas / Units'}</span>
+                  <span className="text-[11px] font-mono text-cyan-600 dark:text-cyan-400">
+                    {newEventAreas.length} {isTh ? 'โซนที่เลือก' : 'selected'}
+                  </span>
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {LOCATION_AREAS.map(area => {
+                    const active = newEventAreas.includes(area);
+                    return (
+                      <button
+                        key={area}
+                        type="button"
+                        onClick={() => toggleEventArea(area)}
+                        className={`p-2.5 rounded-xl border text-left text-xs font-bold flex items-center justify-between gap-2 transition-all cursor-pointer ${
+                          active
+                            ? 'bg-cyan-50 dark:bg-cyan-950/60 border-cyan-500 text-cyan-900 dark:text-cyan-200 shadow-2xs'
+                            : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                        }`}
+                      >
+                        <span className="truncate">{area}</span>
+                        {active && <Check size={14} className="text-cyan-600 dark:text-cyan-400 shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Start Date, End Date & Duration Pill */}
+              <div className="sm:col-span-5 space-y-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                  {isTh ? 'วันที่เริ่มติดตั้งนั่งร้าน (Start Date)' : 'Event Start Date'}
+                </label>
+                <input
+                  type="date"
+                  value={newEventStartDate}
+                  onChange={(e) => setNewEventStartDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="sm:col-span-5 space-y-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                  {isTh ? 'กำหนดรื้อถอน/คืนเช่า (Target Off-Hire Date)' : 'Target Off-Hire / End Date'}
+                </label>
+                <input
+                  type="date"
+                  value={newEventEndDate}
+                  onChange={(e) => setNewEventEndDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="sm:col-span-2 flex flex-col justify-end">
+                <div className="h-[36px] rounded-xl bg-cyan-50 dark:bg-cyan-950/60 border border-cyan-200 dark:border-cyan-800 flex flex-col items-center justify-center px-2">
+                  <span className="text-[9px] uppercase font-bold text-cyan-600 dark:text-cyan-400">
+                    {isTh ? 'ระยะเวลารวม' : 'Duration'}
+                  </span>
+                  <span className="text-xs font-mono font-black text-cyan-800 dark:text-cyan-200">
+                    {eventDurationDays} {isTh ? 'วัน' : 'Days'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Lead Scaffolding Coordinator & Key Milestone */}
+              <div className="sm:col-span-6 space-y-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                  {isTh ? 'ผู้รับผิดชอบหลัก (Lead Scaffold / Civil PE)' : 'Lead Scaffold Coordinator / Civil PE'}
+                </label>
+                <input
+                  type="text"
+                  value={newEventLead}
+                  onChange={(e) => setNewEventLead(e.target.value)}
+                  placeholder="Wichai S. (Lead Scaffold & Civil PE)"
+                  className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="sm:col-span-6 space-y-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                  {isTh ? 'เป้าหมายสำคัญ (Key Scaffolding Milestone)' : 'Key Scaffolding Milestone'}
+                </label>
+                <input
+                  type="text"
+                  value={newEventMilestone}
+                  onChange={(e) => setNewEventMilestone(e.target.value)}
+                  placeholder={isTh ? 'เช่น Green Tag 100% ก่อนเปิด Manhole หอกลั่น' : 'e.g., 100% Green Tag Handover & Zero Overdue Hire'}
+                  className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+
+              {/* Scope Description */}
+              <div className="sm:col-span-12 space-y-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                  {isTh ? 'รายละเอียดขอบเขตงานนั่งร้านใน Event (Scope Description)' : 'Event Scope & Rental Control Strategy'}
+                </label>
+                <textarea
+                  rows={2}
+                  value={newEventDesc}
+                  onChange={(e) => setNewEventDesc(e.target.value)}
+                  placeholder={
+                    isTh
+                      ? 'ระบุขอบเขตงานติดตั้งนั่งร้าน การตรวจรับป้ายเขียว (Green Tag) และการควบคุมระยะเวลาเช่า (Off-Hire Control)...'
+                      : 'Describe scaffolding erection scope, Civil PE calculation requirements, and off-hire rental optimization targets...'
+                  }
+                  className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+            </div>
+
+            {/* Footer Action Buttons */}
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => handleSaveScaffoldEvent(false)}
+                className="px-4 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white text-xs font-bold flex items-center gap-2 cursor-pointer transition-all shadow-xs"
+              >
+                <Check size={15} />
+                <span>{isTh ? 'บันทึก Event เข้าทะเบียน' : 'Save Event to Registry'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSaveScaffoldEvent(true)}
+                className="px-5 py-2.5 rounded-xl bg-cyan-700 hover:bg-cyan-800 text-white text-xs font-black flex items-center gap-2 cursor-pointer transition-all shadow-md shadow-cyan-700/25 active:scale-95"
+              >
+                <Plus size={15} className="stroke-[3]" />
+                <span>
+                  {isTh
+                    ? 'บันทึก Event และเปิดฟอร์มสร้างใบงานนั่งร้าน →'
+                    : 'Save Event & Create Scaffolding Job →'}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* Right 5 Cols: Active Scaffolding Event Registry Sidebar */}
+          <div className="lg:col-span-5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 flex flex-col justify-between space-y-4">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div>
+                  <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                    <Layers size={16} className="text-cyan-600 dark:text-cyan-400" />
+                    <span>{isTh ? 'ทะเบียน Event งานนั่งร้าน (Active Event Registry)' : 'Active Scaffolding Event Registry'}</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    {isTh
+                      ? 'เลือก Event เพื่อสร้างใบงานนั่งร้านเดี่ยว หรือนำเข้าข้อมูลแบบกลุ่ม 50+ รายการ'
+                      : 'Select an Event to create single scaffolding requests or batch import 50+ jobs.'}
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 rounded-full text-xs font-mono font-black bg-cyan-50 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800">
+                  {events.length} Events
+                </span>
+              </div>
+
+              <div className="space-y-3 max-h-[540px] overflow-y-auto pr-1 custom-scrollbar">
+                {events.map(ev => {
+                  const allScaffJobs = getStoredScaffoldingJobs();
+                  const linkedJobs = allScaffJobs.filter(
+                    j => (j.eventName || 'Annual Turnaround 2026') === ev.eventName
+                  );
+                  const totalVol = linkedJobs.reduce(
+                    (acc, j) => acc + (j.estimate?.volume || (j.markingLocation?.scaleBlock ? j.markingLocation.scaleBlock.width * j.markingLocation.scaleBlock.length * Number(j.markingLocation.scaleBlock.height || 6) : 48)),
+                    0
+                  );
+                  const greenTagCount = linkedJobs.filter(
+                    j => j.lifecycleStage === 'In-use' || j.status === 'Approved' || j.status === 'Completed'
+                  ).length;
+                  const readinessPct = linkedJobs.length > 0 ? Math.round((greenTagCount / linkedJobs.length) * 100) : 0;
+                  const isSelected = selectedEventName === ev.eventName;
+
+                  return (
+                    <div
+                      key={ev.id}
+                      onClick={() => setSelectedEventName(ev.eventName)}
+                      className={`p-3.5 rounded-2xl border transition-all cursor-pointer space-y-2.5 ${
+                        isSelected
+                          ? 'bg-cyan-50/70 dark:bg-cyan-950/40 border-cyan-500 ring-2 ring-cyan-500/15'
+                          : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/80 hover:border-cyan-400'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-100 dark:bg-cyan-900/60 text-cyan-800 dark:text-cyan-200">
+                              {ev.eventCode}
+                            </span>
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200/80 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
+                              {ev.plant}
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                ev.status === 'Active'
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                  : ev.status === 'Planning'
+                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                    : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
+                              }`}
+                            >
+                              {ev.status}
+                            </span>
+                          </div>
+                          <h4 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white mt-1">
+                            {ev.eventName}
+                          </h4>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {ev.eventType} · {ev.startDate} → {ev.targetTurnoverDate}
+                          </p>
+                        </div>
+
+                        {events.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteEvent(ev.id);
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                            title={isTh ? 'ลบ Event' : 'Delete Event'}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Linked Scaffolding Metrics */}
+                      <div className="grid grid-cols-3 gap-2 pt-1 text-center">
+                        <div className="p-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700">
+                          <div className="text-[10px] text-slate-400 font-semibold">
+                            {isTh ? 'ใบงานนั่งร้าน' : 'Scaffold Jobs'}
+                          </div>
+                          <div className="text-xs font-mono font-black text-cyan-700 dark:text-cyan-300">
+                            {linkedJobs.length} {isTh ? 'งาน' : 'jobs'}
+                          </div>
+                        </div>
+                        <div className="p-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700">
+                          <div className="text-[10px] text-slate-400 font-semibold">
+                            {isTh ? 'ปริมาตรรวม' : 'Est. Volume'}
+                          </div>
+                          <div className="text-xs font-mono font-black text-slate-800 dark:text-slate-200">
+                            {Math.round(totalVol).toLocaleString()} m³
+                          </div>
+                        </div>
+                        <div className="p-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700">
+                          <div className="text-[10px] text-slate-400 font-semibold">
+                            {isTh ? 'ป้ายเขียวพร้อมใช้' : 'Green Tag Ready'}
+                          </div>
+                          <div className="text-xs font-mono font-black text-emerald-600 dark:text-emerald-400">
+                            {readinessPct}%
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Progress Bar */}
+                      <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-cyan-500 to-emerald-500 rounded-full transition-all"
+                          style={{ width: `${Math.max(8, readinessPct)}%` }}
+                        />
+                      </div>
+
+                      {/* Quick Action Buttons */}
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedEventName(ev.eventName);
+                            if (ev.plant === 'Phra Khanong' || ev.plant === 'Sriracha') {
+                              setSelectedPlant(ev.plant);
+                            }
+                            if (ev.startDate) setRequiredDate(ev.startDate);
+                            if (ev.targetTurnoverDate) setOffHireDate(ev.targetTurnoverDate);
+                            setActiveTab('single');
+                          }}
+                          className="flex-1 py-1.5 px-2.5 rounded-xl bg-cyan-700 hover:bg-cyan-800 text-white text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                        >
+                          <Plus size={12} />
+                          <span>{isTh ? '+ สร้างใบงานนั่งร้าน' : '+ Add Scaffold Job'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedEventName(ev.eventName);
+                            setActiveTab('bulk');
+                          }}
+                          className="py-1.5 px-2.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-cyan-700 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                        >
+                          <Layers size={12} />
+                          <span>{isTh ? 'Bulk 50+' : 'Bulk Import'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
           TAB 1: SINGLE REQUEST FORM WITH CRANE-MATCHED 2-COL + 1-COL LAYOUT
          ========================================================================= */}
       {activeTab === 'single' && (
@@ -964,6 +1657,140 @@ export default function ScaffoldingSF01CreateJob({ onNavigateToList }: Scaffoldi
             </div>
 
             <form onSubmit={handleSingleSubmit} className="space-y-6">
+
+              {/* =========================================================================
+                  SECTION 0: TARGET EVENT / TURNAROUND BINDING BANNER
+                 ========================================================================= */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-cyan-50/60 dark:bg-cyan-950/30 border border-cyan-200 dark:border-cyan-800/80 space-y-3.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Calendar size={16} className="text-cyan-700 dark:text-cyan-400" />
+                      <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                        {isTh ? 'ผูกใบงานกับ Event / โครงการ (Target Event Binding)' : 'Target Event / Turnaround Binding'}
+                      </h3>
+                      {selectedEventObj && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-cyan-100 dark:bg-cyan-900/60 text-cyan-800 dark:text-cyan-200 border border-cyan-200 dark:border-cyan-700">
+                          {selectedEventObj.eventCode}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      {isTh
+                        ? 'เลือก Event หรือ Turnaround ที่ต้องการผูกกับใบคำขอนั่งร้านนี้ หรือกดปุ่ม + สร้าง Event ด่วน'
+                        : 'Bind this scaffolding request to an active Turnaround or Scaffolding Campaign Event.'}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedEventObj) {
+                          if (selectedEventObj.plant === 'Phra Khanong' || selectedEventObj.plant === 'Sriracha') {
+                            setSelectedPlant(selectedEventObj.plant);
+                          }
+                          if (selectedEventObj.startDate) setRequiredDate(selectedEventObj.startDate);
+                          if (selectedEventObj.targetTurnoverDate) setOffHireDate(selectedEventObj.targetTurnoverDate);
+                        }
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-cyan-100 dark:hover:bg-slate-700 text-cyan-700 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-700 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <RefreshCw size={12} />
+                      <span>{isTh ? 'ซิงค์โรงกลั่น & วันเช่า' : 'Sync Plant & Dates'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsQuickEventOpen(prev => !prev)}
+                      className="px-3 py-1.5 rounded-xl bg-cyan-700 hover:bg-cyan-800 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                    >
+                      <Plus size={12} />
+                      <span>{isTh ? '+ สร้าง Event ด่วน' : '+ Quick New Event'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                  <div className="md:col-span-7">
+                    <select
+                      value={selectedEventName}
+                      onChange={(e) => setSelectedEventName(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-cyan-300 dark:border-cyan-700 text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
+                    >
+                      {events.map(ev => (
+                        <option key={ev.id} value={ev.eventName}>
+                          {ev.eventName} ({ev.eventCode}) — {ev.plant}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {selectedEventObj && (
+                    <div className="md:col-span-5 flex flex-wrap items-center gap-1.5 text-[11px]">
+                      <span className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-semibold text-slate-700 dark:text-slate-300">
+                        {selectedEventObj.eventType}
+                      </span>
+                      <span className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-slate-600 dark:text-slate-300">
+                        {selectedEventObj.startDate} → {selectedEventObj.targetTurnoverDate}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Inline Quick New Event Drawer */}
+                {isQuickEventOpen && (
+                  <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-cyan-300 dark:border-cyan-700 space-y-3 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-cyan-800 dark:text-cyan-300">
+                        {isTh ? 'สร้าง Event ใหม่แบบด่วน (Quick Create Scaffolding Event)' : 'Quick Create Scaffolding Event'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsQuickEventOpen(false)}
+                        className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <input
+                        type="text"
+                        value={quickEventCode}
+                        onChange={(e) => setQuickEventCode(e.target.value)}
+                        placeholder="EVT-SCF-2026-09"
+                        className="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-mono font-bold text-slate-900 dark:text-white"
+                      />
+                      <input
+                        type="text"
+                        value={quickEventName}
+                        onChange={(e) => setQuickEventName(e.target.value)}
+                        placeholder={isTh ? 'ระบุชื่อ Event ใหม่...' : 'Enter new Event Name...'}
+                        className="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white"
+                      />
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={quickEventCategory}
+                          onChange={(e) => setQuickEventCategory(e.target.value)}
+                          className="flex-1 px-2.5 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white"
+                        >
+                          <option value="Scaffolding Campaign & Rental Optimization">Scaffolding Campaign</option>
+                          <option value="Vessel & Column Access Overhaul">Column Access</option>
+                          <option value="Annual Turnaround (TA)">Turnaround (TA)</option>
+                          <option value="Major Overhaul">Major Overhaul</option>
+                        </select>
+                        <button
+                          type="button"
+                          onClick={handleQuickCreateEvent}
+                          className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer shrink-0"
+                        >
+                          {isTh ? 'บันทึก' : 'Save'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
               
               {/* =========================================================================
                   SECTION 1: ข้อมูลงานทั่วไป (General Info)
@@ -1113,7 +1940,315 @@ export default function ScaffoldingSF01CreateJob({ onNavigateToList }: Scaffoldi
               </div>
 
               {/* =========================================================================
-                  SECTION 2: พิกัดสถานที่และผังโรงงาน (Location Details & Plot Plan Pin / Scale Block)
+                  SECTION 2: น้ำหนักบรรทุกและข้อกำหนดทางวิศวกรรม (Load & Technical Specs)
+                 ========================================================================= */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/80 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 dark:border-slate-700/80 pb-3">
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider flex items-center gap-2">
+                      <Wrench size={16} className="text-cyan-700 dark:text-cyan-400" />
+                      <span>Load & Technical Specs</span>
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      ระบุน้ำหนักบรรทุกใช้งาน จำนวนผู้ปฏิบัติงาน น้ำหนักยกของรอก และข้อกำหนดการออกแบบทางวิศวกรรม
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {/* Maximum Load (kg) * */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      Maximum Load (kg) <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        value={maxLoadKg}
+                        onChange={(e) => {
+                          setMaxLoadKg(e.target.value === '' ? '' : Number(e.target.value));
+                          if (formErrors.maxLoadKg) setFormErrors(prev => ({ ...prev, maxLoadKg: '' }));
+                        }}
+                        placeholder="เช่น 450"
+                        className="w-full px-3.5 py-2.5 pr-10 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600"
+                      />
+                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 font-mono">
+                        kg
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      น้ำหนักคนทำงาน + เครื่องมือและอุปกรณ์ (Worker + Equipment)
+                    </p>
+                    {formErrors.maxLoadKg && <p className="text-[11px] text-rose-500 font-semibold">{formErrors.maxLoadKg}</p>}
+                  </div>
+
+                  {/* Maximum Worker * */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      Maximum Worker <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        value={maxWorkers}
+                        onChange={(e) => {
+                          setMaxWorkers(e.target.value === '' ? '' : Number(e.target.value));
+                          if (formErrors.maxWorkers) setFormErrors(prev => ({ ...prev, maxWorkers: '' }));
+                        }}
+                        placeholder="เช่น 4"
+                        className="w-full px-3.5 py-2.5 pr-24 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600"
+                      />
+                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                        คน (person)
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      จำนวนคนทำงานและผู้ควบคุมงานทั้งหมด
+                    </p>
+                    {formErrors.maxWorkers && <p className="text-[11px] text-rose-500 font-semibold">{formErrors.maxWorkers}</p>}
+                  </div>
+
+                  {/* Maximum Lifting Load (kg) * */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      Maximum Lifting Load (kg) <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        value={maxLiftingLoadKg}
+                        onChange={(e) => {
+                          setMaxLiftingLoadKg(e.target.value === '' ? '' : Number(e.target.value));
+                          if (formErrors.maxLiftingLoadKg) setFormErrors(prev => ({ ...prev, maxLiftingLoadKg: '' }));
+                        }}
+                        placeholder="เช่น 150"
+                        className="w-full px-3.5 py-2.5 pr-10 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600"
+                      />
+                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 font-mono">
+                        kg
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      กรณีต้องการแขวนรอกเพื่อยกชิ้นงาน หรืออุปกรณ์
+                    </p>
+                    {formErrors.maxLiftingLoadKg && <p className="text-[11px] text-rose-500 font-semibold">{formErrors.maxLiftingLoadKg}</p>}
+                  </div>
+
+                  {/* Heavy Duty / Engineering Required * */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      Heavy Duty / Engineering Required <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setHeavyDuty('Y')}
+                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                          heavyDuty === 'Y'
+                            ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                        }`}
+                      >
+                        Y (Yes)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setHeavyDuty('N')}
+                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                          heavyDuty === 'N'
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                        }`}
+                      >
+                        N (No)
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      เลือก "Y" หากน้ำหนักเกินเกณฑ์มาตรฐาน หรือต้องมีรายการคำนวณรับรองโดยสามัญวิศวกรโยธา (PE)
+                    </p>
+                  </div>
+
+                  {/* Special Purpose * */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      Special Purpose <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSpecialPurpose('Y')}
+                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                          specialPurpose === 'Y'
+                            ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                        }`}
+                      >
+                        Y (Yes)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSpecialPurpose('N')}
+                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                          specialPurpose === 'N'
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                        }`}
+                      >
+                        N (No)
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      เลือก "Y" สำหรับนั่งร้านแขวน นั่งร้านยื่นนอกแนวเสา (Cantilever) หรือติดตั้งภายในถัง/เตาเผา
+                    </p>
+                  </div>
+                </div>
+
+                {/* PE Structural Review Alert */}
+                {(heavyDuty === 'Y' || specialPurpose === 'Y') && (
+                  <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/80 flex items-start gap-2.5 text-xs text-rose-800 dark:text-rose-300 animate-in fade-in duration-200">
+                    <ShieldAlert size={18} className="text-rose-600 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold">วิศวกรโยธา (Civil PE Structural Calculation Required): </span>
+                      เนื่องจากงานนี้เข้าข่าย Heavy Duty หรือ Special Purpose จำเป็นต้องมีรายการคำนวณโครงสร้างและได้รับการอนุมัติโดยวิศวกรโยธาก่อนการติดป้ายเขียวส่งมอบ
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* =========================================================================
+                  SECTION 3: ช่วงเวลาปฏิบัติงานและผู้รับเหมา (Period & Company)
+                 ========================================================================= */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/80 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 dark:border-slate-700/80 pb-3">
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider flex items-center gap-2">
+                      <Clock size={16} className="text-cyan-700 dark:text-cyan-400" />
+                      <span>Period & Company</span>
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      กะเวลาเข้าทำงาน ระยะเวลาเช่าใช้งาน บริษัทผู้รับเหมานั่งร้าน และวันที่ต้องการใช้งาน/วันที่คืนนั่งร้าน (วว/ดด/ปป)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {/* Working Period * */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      Working Period <span className="text-rose-500">*</span>
+                    </label>
+                    <select
+                      value={workingPeriod}
+                      onChange={(e) => {
+                        setWorkingPeriod(e.target.value);
+                        if (formErrors.workingPeriod) setFormErrors(prev => ({ ...prev, workingPeriod: '' }));
+                      }}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600"
+                    >
+                      <option value="">-- Select Working Period --</option>
+                      {WORKING_PERIODS.map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      ช่วงเวลาสำหรับทีมติดตั้ง/รื้อถอนนั่งร้าน
+                    </p>
+                    {formErrors.workingPeriod && <p className="text-[11px] text-rose-500 font-semibold">{formErrors.workingPeriod}</p>}
+                  </div>
+
+                  {/* Hire Period * */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      Hire Period <span className="text-rose-500">*</span>
+                    </label>
+                    <select
+                      value={hirePeriod}
+                      onChange={(e) => {
+                        handleHirePeriodChange(e.target.value);
+                        if (formErrors.hirePeriod) setFormErrors(prev => ({ ...prev, hirePeriod: '' }));
+                      }}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600"
+                    >
+                      <option value="">-- Select Hire Period --</option>
+                      {HIRE_PERIODS.map(period => (
+                        <option key={period} value={period}>{period}</option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      ระยะเวลาเช่ามาตรฐาน (15 วัน หรือ 30 วัน)
+                    </p>
+                    {formErrors.hirePeriod && <p className="text-[11px] text-rose-500 font-semibold">{formErrors.hirePeriod}</p>}
+                  </div>
+
+                  {/* Company * */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      Company <span className="text-rose-500">*</span>
+                    </label>
+                    <select
+                      value={company}
+                      onChange={(e) => {
+                        setCompany(e.target.value);
+                        if (formErrors.company) setFormErrors(prev => ({ ...prev, company: '' }));
+                      }}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600"
+                    >
+                      <option value="">-- Select Company --</option>
+                      {CONTRACTOR_COMPANIES.map(comp => (
+                        <option key={comp} value={comp}>{comp}</option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      บริษัทผู้รับเหมาติดตั้งนั่งร้านที่ผ่านการรับรอง
+                    </p>
+                    {formErrors.company && <p className="text-[11px] text-rose-500 font-semibold">{formErrors.company}</p>}
+                  </div>
+
+                  {/* Required Date * */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      Required Date <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={requiredDate}
+                      onChange={(e) => {
+                        handleRequiredDateChange(e.target.value);
+                        if (formErrors.requiredDate) setFormErrors(prev => ({ ...prev, requiredDate: '' }));
+                      }}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600"
+                    />
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      รูปแบบ: วว/ดด/ปป (DD/MM/YY — วันที่ต้องการให้นั่งร้านพร้อมใช้งาน)
+                    </p>
+                    {formErrors.requiredDate && <p className="text-[11px] text-rose-500 font-semibold">{formErrors.requiredDate}</p>}
+                  </div>
+
+                  {/* Off Hire Date * */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
+                      <span>Off Hire Date <span className="text-rose-500">*</span></span>
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold font-mono">Auto Calc</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={offHireDate}
+                      onChange={(e) => {
+                        setOffHireDate(e.target.value);
+                        if (formErrors.offHireDate) setFormErrors(prev => ({ ...prev, offHireDate: '' }));
+                      }}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600"
+                    />
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      รูปแบบ: วว/ดด/ปป (DD/MM/YY — กำหนดการรื้อถอนและสิ้นสุดการเช่านั่งร้าน)
+                    </p>
+                    {formErrors.offHireDate && <p className="text-[11px] text-rose-500 font-semibold">{formErrors.offHireDate}</p>}
+                  </div>
+                </div>
+              </div>
+
+              {/* =========================================================================
+                  SECTION 4: พิกัดสถานที่และผังโรงงาน (Location Details & Plot Plan Pin / Scale Block)
                  ========================================================================= */}
               <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/80 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 dark:border-slate-700/80 pb-3">
@@ -1418,314 +2553,6 @@ export default function ScaffoldingSF01CreateJob({ onNavigateToList }: Scaffoldi
               </div>
 
               {/* =========================================================================
-                  SECTION 3: น้ำหนักบรรทุกและข้อกำหนดทางวิศวกรรม (Load & Technical Specs)
-                 ========================================================================= */}
-              <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/80 space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 dark:border-slate-700/80 pb-3">
-                  <div>
-                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider flex items-center gap-2">
-                      <Wrench size={16} className="text-cyan-700 dark:text-cyan-400" />
-                      <span>Load & Technical Specs</span>
-                    </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      ระบุน้ำหนักบรรทุกใช้งาน จำนวนผู้ปฏิบัติงาน น้ำหนักยกของรอก และข้อกำหนดการออกแบบทางวิศวกรรม
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {/* Maximum Load (kg) * */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                      Maximum Load (kg) <span className="text-rose-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        value={maxLoadKg}
-                        onChange={(e) => {
-                          setMaxLoadKg(e.target.value === '' ? '' : Number(e.target.value));
-                          if (formErrors.maxLoadKg) setFormErrors(prev => ({ ...prev, maxLoadKg: '' }));
-                        }}
-                        placeholder="เช่น 450"
-                        className="w-full px-3.5 py-2.5 pr-10 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600"
-                      />
-                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 font-mono">
-                        kg
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      น้ำหนักคนทำงาน + เครื่องมือและอุปกรณ์ (Worker + Equipment)
-                    </p>
-                    {formErrors.maxLoadKg && <p className="text-[11px] text-rose-500 font-semibold">{formErrors.maxLoadKg}</p>}
-                  </div>
-
-                  {/* Maximum Worker * */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                      Maximum Worker <span className="text-rose-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        value={maxWorkers}
-                        onChange={(e) => {
-                          setMaxWorkers(e.target.value === '' ? '' : Number(e.target.value));
-                          if (formErrors.maxWorkers) setFormErrors(prev => ({ ...prev, maxWorkers: '' }));
-                        }}
-                        placeholder="เช่น 4"
-                        className="w-full px-3.5 py-2.5 pr-24 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600"
-                      />
-                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
-                        คน (person)
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      จำนวนคนทำงานและผู้ควบคุมงานทั้งหมด
-                    </p>
-                    {formErrors.maxWorkers && <p className="text-[11px] text-rose-500 font-semibold">{formErrors.maxWorkers}</p>}
-                  </div>
-
-                  {/* Maximum Lifting Load (kg) * */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                      Maximum Lifting Load (kg) <span className="text-rose-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        value={maxLiftingLoadKg}
-                        onChange={(e) => {
-                          setMaxLiftingLoadKg(e.target.value === '' ? '' : Number(e.target.value));
-                          if (formErrors.maxLiftingLoadKg) setFormErrors(prev => ({ ...prev, maxLiftingLoadKg: '' }));
-                        }}
-                        placeholder="เช่น 150"
-                        className="w-full px-3.5 py-2.5 pr-10 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600"
-                      />
-                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 font-mono">
-                        kg
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      กรณีต้องการแขวนรอกเพื่อยกชิ้นงาน หรืออุปกรณ์
-                    </p>
-                    {formErrors.maxLiftingLoadKg && <p className="text-[11px] text-rose-500 font-semibold">{formErrors.maxLiftingLoadKg}</p>}
-                  </div>
-
-                  {/* Heavy Duty / Engineering Required * */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                      Heavy Duty / Engineering Required <span className="text-rose-500">*</span>
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setHeavyDuty('Y')}
-                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                          heavyDuty === 'Y'
-                            ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
-                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
-                        }`}
-                      >
-                        Y (Yes)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setHeavyDuty('N')}
-                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                          heavyDuty === 'N'
-                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
-                        }`}
-                      >
-                        N (No)
-                      </button>
-                    </div>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      เลือก "Y" หากน้ำหนักเกินเกณฑ์มาตรฐาน หรือต้องมีรายการคำนวณรับรองโดยสามัญวิศวกรโยธา (PE)
-                    </p>
-                  </div>
-
-                  {/* Special Purpose * */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                      Special Purpose <span className="text-rose-500">*</span>
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setSpecialPurpose('Y')}
-                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                          specialPurpose === 'Y'
-                            ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
-                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
-                        }`}
-                      >
-                        Y (Yes)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSpecialPurpose('N')}
-                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                          specialPurpose === 'N'
-                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
-                        }`}
-                      >
-                        N (No)
-                      </button>
-                    </div>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      เลือก "Y" สำหรับนั่งร้านแขวน นั่งร้านยื่นนอกแนวเสา (Cantilever) หรือติดตั้งภายในถัง/เตาเผา
-                    </p>
-                  </div>
-                </div>
-
-                {/* PE Structural Review Alert */}
-                {(heavyDuty === 'Y' || specialPurpose === 'Y') && (
-                  <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/80 flex items-start gap-2.5 text-xs text-rose-800 dark:text-rose-300 animate-in fade-in duration-200">
-                    <ShieldAlert size={18} className="text-rose-600 shrink-0 mt-0.5" />
-                    <div>
-                      <span className="font-bold">วิศวกรโยธา (Civil PE Structural Calculation Required): </span>
-                      เนื่องจากงานนี้เข้าข่าย Heavy Duty หรือ Special Purpose จำเป็นต้องมีรายการคำนวณโครงสร้างและได้รับการอนุมัติโดยวิศวกรโยธาก่อนการติดป้ายเขียวส่งมอบ
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* =========================================================================
-                  SECTION 4: ช่วงเวลาปฏิบัติงานและผู้รับเหมา (Period & Company)
-                 ========================================================================= */}
-              <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/80 space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 dark:border-slate-700/80 pb-3">
-                  <div>
-                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider flex items-center gap-2">
-                      <Clock size={16} className="text-cyan-700 dark:text-cyan-400" />
-                      <span>Period & Company</span>
-                    </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      กะเวลาเข้าทำงาน ระยะเวลาเช่าใช้งาน บริษัทผู้รับเหมานั่งร้าน และวันที่ต้องการใช้งาน/วันที่คืนนั่งร้าน (วว/ดด/ปป)
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {/* Working Period * */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                      Working Period <span className="text-rose-500">*</span>
-                    </label>
-                    <select
-                      value={workingPeriod}
-                      onChange={(e) => {
-                        setWorkingPeriod(e.target.value);
-                        if (formErrors.workingPeriod) setFormErrors(prev => ({ ...prev, workingPeriod: '' }));
-                      }}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600"
-                    >
-                      <option value="">-- Select Working Period --</option>
-                      {WORKING_PERIODS.map(p => (
-                        <option key={p} value={p}>{p}</option>
-                      ))}
-                    </select>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      ช่วงเวลาสำหรับทีมติดตั้ง/รื้อถอนนั่งร้าน
-                    </p>
-                    {formErrors.workingPeriod && <p className="text-[11px] text-rose-500 font-semibold">{formErrors.workingPeriod}</p>}
-                  </div>
-
-                  {/* Hire Period * */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                      Hire Period <span className="text-rose-500">*</span>
-                    </label>
-                    <select
-                      value={hirePeriod}
-                      onChange={(e) => {
-                        handleHirePeriodChange(e.target.value);
-                        if (formErrors.hirePeriod) setFormErrors(prev => ({ ...prev, hirePeriod: '' }));
-                      }}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600"
-                    >
-                      <option value="">-- Select Hire Period --</option>
-                      {HIRE_PERIODS.map(period => (
-                        <option key={period} value={period}>{period}</option>
-                      ))}
-                    </select>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      ระยะเวลาเช่ามาตรฐาน (15 วัน หรือ 30 วัน)
-                    </p>
-                    {formErrors.hirePeriod && <p className="text-[11px] text-rose-500 font-semibold">{formErrors.hirePeriod}</p>}
-                  </div>
-
-                  {/* Company * */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                      Company <span className="text-rose-500">*</span>
-                    </label>
-                    <select
-                      value={company}
-                      onChange={(e) => {
-                        setCompany(e.target.value);
-                        if (formErrors.company) setFormErrors(prev => ({ ...prev, company: '' }));
-                      }}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600"
-                    >
-                      <option value="">-- Select Company --</option>
-                      {CONTRACTOR_COMPANIES.map(comp => (
-                        <option key={comp} value={comp}>{comp}</option>
-                      ))}
-                    </select>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      บริษัทผู้รับเหมาติดตั้งนั่งร้านที่ผ่านการรับรอง
-                    </p>
-                    {formErrors.company && <p className="text-[11px] text-rose-500 font-semibold">{formErrors.company}</p>}
-                  </div>
-
-                  {/* Required Date * */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                      Required Date <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="date"
-                      value={requiredDate}
-                      onChange={(e) => {
-                        handleRequiredDateChange(e.target.value);
-                        if (formErrors.requiredDate) setFormErrors(prev => ({ ...prev, requiredDate: '' }));
-                      }}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600"
-                    />
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      รูปแบบ: วว/ดด/ปป (DD/MM/YY — วันที่ต้องการให้นั่งร้านพร้อมใช้งาน)
-                    </p>
-                    {formErrors.requiredDate && <p className="text-[11px] text-rose-500 font-semibold">{formErrors.requiredDate}</p>}
-                  </div>
-
-                  {/* Off Hire Date * */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
-                      <span>Off Hire Date <span className="text-rose-500">*</span></span>
-                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold font-mono">Auto Calc</span>
-                    </label>
-                    <input
-                      type="date"
-                      value={offHireDate}
-                      onChange={(e) => {
-                        setOffHireDate(e.target.value);
-                        if (formErrors.offHireDate) setFormErrors(prev => ({ ...prev, offHireDate: '' }));
-                      }}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600"
-                    />
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      รูปแบบ: วว/ดด/ปป (DD/MM/YY — กำหนดการรื้อถอนและสิ้นสุดการเช่านั่งร้าน)
-                    </p>
-                    {formErrors.offHireDate && <p className="text-[11px] text-rose-500 font-semibold">{formErrors.offHireDate}</p>}
-                  </div>
-                </div>
-              </div>
-
-              {/* =========================================================================
                   FOOTER VALIDATION WARNING & SUBMIT BUTTONS
                  ========================================================================= */}
               <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
@@ -1827,6 +2654,12 @@ export default function ScaffoldingSF01CreateJob({ onNavigateToList }: Scaffoldi
 
               <div className="space-y-2 text-xs">
                 <div className="flex items-center justify-between">
+                  <span className="text-slate-400">{isTh ? 'Event / โครงการ:' : 'Target Event:'}</span>
+                  <span className="font-bold text-cyan-700 dark:text-cyan-300 truncate max-w-[170px]" title={selectedEventName}>
+                    {selectedEventName || 'Annual Turnaround 2026'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
                   <span className="text-slate-400">{isTh ? 'รหัสอุปกรณ์:' : 'Equipment Tag:'}</span>
                   <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{equipmentTag || '-'}</span>
                 </div>
@@ -1913,6 +2746,9 @@ export default function ScaffoldingSF01CreateJob({ onNavigateToList }: Scaffoldi
       {activeTab === 'bulk' && (
         <BulkScaffoldingJobIngestion
           onNavigateToList={onNavigateToList}
+          selectedEventName={selectedEventName}
+          onSelectEventName={setSelectedEventName}
+          onOpenCreateEvent={() => setActiveTab('event')}
           onSwitchToSingle={() => {
             setActiveTab('single');
             setSubmittedJobId(null);

@@ -88,7 +88,7 @@ import BulkTurnoverJobIngestion from './bulk/BulkTurnoverJobIngestion';
 import DigitalSignaturePad from './DigitalSignaturePad';
 import PlotPlanPinningSection, { PinData, ScaleBlockData } from './common/PlotPlanPinningSection';
 import { useLanguage } from '../context/LanguageContext';
-import { usePlantTurnShared } from '../context/PlantTurnSharedContext';
+import { usePlantTurnShared, TurnoverEventRecord } from '../context/PlantTurnSharedContext';
 const NOT_ACCEPT_OTHER = '__other__';
 const SIGNER_ROLES_STORAGE_KEY = 'turnover_signer_roles_by_plant_v1';
 const DEFAULT_SIGNER_ROLES = [
@@ -477,6 +477,7 @@ export interface JobLocationTurnoverPrototypeProps {
   initialWorkspaceTab?: WorkspaceTab;
   initialTurnoverSubTab?: TurnoverSubTab;
   globalPlantFilter?: 'All' | 'Phra Khanong' | 'Sriracha';
+  key?: React.Key;
   onGlobalPlantFilterChange?: (plant: 'All' | 'Phra Khanong' | 'Sriracha') => void;
   onNavigateToFunctionalLocation?: (nodeId?: string) => void;
   onNavigateToMasterPlotPlan?: (nodeId?: string) => void;
@@ -558,7 +559,20 @@ export default function JobLocationTurnoverPrototype({
   onNavigateToWorkspace
 }: JobLocationTurnoverPrototypeProps = {}) {
   const { language, isTh, t } = useLanguage();
-  const { jobs, setJobs, selectedJobId, setSelectedJobId, checkJobIdExists, batchCreateJobs, logActivity } = usePlantTurnShared();
+  const {
+    jobs,
+    setJobs,
+    selectedJobId,
+    setSelectedJobId,
+    events,
+    createEvent,
+    updateEvent,
+    deleteEvent,
+    checkEventExists,
+    checkJobIdExists,
+    batchCreateJobs,
+    logActivity
+  } = usePlantTurnShared();
   const [activeMainView, setActiveMainView] = useState<MainViewTab>(initialMainView || 'create');
   const [executiveSubTab, setExecutiveSubTab] = useState<'overview' | 'critical-path' | 'unit-funnel'>(initialDashboardSubTab || 'overview');
 
@@ -592,12 +606,33 @@ export default function JobLocationTurnoverPrototype({
     }
   }, [initialTurnoverSubTab]);
 
-  // Step 1: Event Form State (Blank by default)
+  // Step 1: Event Form State & Registry
+  const [formEventCode, setFormEventCode] = useState('');
   const [eventName, setEventName] = useState('');
+  const [formEventType, setFormEventType] = useState('Annual Turnaround (TA)');
+  const [formEventPlant, setFormEventPlant] = useState<'Phra Khanong' | 'Sriracha' | 'All Plants'>('Phra Khanong');
+  const [formEventTargetUnits, setFormEventTargetUnits] = useState<string[]>(['S2 - APS-1, APS-2, FCCU, GOHF-3']);
   const [selectedPlant, setSelectedPlant] = useState<'Phra Khanong' | 'Sriracha'>('Phra Khanong');
   const [eventStartDate, setEventStartDate] = useState('');
   const [eventTargetDate, setEventTargetDate] = useState('');
   const [eventMilestone, setEventMilestone] = useState('');
+  const [formEventCoordinator, setFormEventCoordinator] = useState(JOB_LEAD_OPTIONS[1]);
+  const [formEventDescription, setFormEventDescription] = useState('');
+  const [formEventStatus, setFormEventStatus] = useState<'Planning' | 'Active' | 'Turnover Phase' | 'Completed'>('Planning');
+  const [createdEventFeedback, setCreatedEventFeedback] = useState<TurnoverEventRecord | null>(null);
+  const [eventRegistryPlantFilter, setEventRegistryPlantFilter] = useState<'All' | 'Phra Khanong' | 'Sriracha'>('All');
+  const [eventRegistrySearch, setEventRegistrySearch] = useState('');
+
+  // Selected Event for Single / Bulk Job Creation
+  const [formSelectedEventName, setFormSelectedEventName] = useState<string>(() => {
+    return events[0]?.eventName || 'Annual Turnaround 2026';
+  });
+  const [isQuickEventOpen, setIsQuickEventOpen] = useState(false);
+  const [quickEventCode, setQuickEventCode] = useState('');
+  const [quickEventName, setQuickEventName] = useState('');
+  const [quickEventType, setQuickEventType] = useState('Annual Turnaround (TA)');
+  const [quickEventStart, setQuickEventStart] = useState(() => new Date().toISOString().slice(0, 10));
+  const [quickEventTarget, setQuickEventTarget] = useState(() => new Date(Date.now() + 86400000 * 14).toISOString().slice(0, 10));
 
   // Step 2: Job Location & Functional Location / Asset Hierarchy Linkage State
   const [selectedUnitId, setSelectedUnitId] = useState('');
@@ -610,7 +645,7 @@ export default function JobLocationTurnoverPrototype({
   const [jobWorkOrder, setJobWorkOrder] = useState('');
   const [jobDescriptionInput, setJobDescriptionInput] = useState('');
   const [createdJobLinkInfo, setCreatedJobLinkInfo] = useState<{ id: string; jobNo: string; url: string } | null>(null);
-  const [createPackageMode, setCreatePackageMode] = useState<'single' | 'bulk'>('single');
+  const [createPackageMode, setCreatePackageMode] = useState<'event' | 'single' | 'bulk'>('event');
   const [isCreateFormOpen, setIsCreateFormOpen] = useState(true);
   const [hubPlantFilter, setHubPlantFilter] = useState<'All' | 'Phra Khanong' | 'Sriracha'>('All');
 
@@ -743,6 +778,7 @@ export default function JobLocationTurnoverPrototype({
 
   const handleFillSampleData = () => {
     setFormJobId('TO-PK-2026-7782');
+    setFormSelectedEventName(events[0]?.eventName || 'Annual Turnaround 2026');
     setFormJobDescription('Overhaul and hydro-jetting inspection of crude column overhead condensing circuit and re-tubing evaluation.');
     setSelectedPlant('Phra Khanong');
     setFormAreaUnit('S2 - APS-1, APS-2, FCCU, GOHF-3');
@@ -770,6 +806,200 @@ export default function JobLocationTurnoverPrototype({
       label: 'Overhead Condenser Working Footprint'
     });
   };
+
+  // Event Form Validation & Helpers
+  const isEventCodeDuplicate = useMemo(() => {
+    if (!formEventCode.trim()) return false;
+    return checkEventExists(formEventCode.trim());
+  }, [formEventCode, checkEventExists, events]);
+
+  const isEventNameDuplicate = useMemo(() => {
+    if (!eventName.trim()) return false;
+    return checkEventExists(eventName.trim());
+  }, [eventName, checkEventExists, events]);
+
+  const isEventFormValid = useMemo(() => {
+    return Boolean(
+      formEventCode.trim() &&
+      !isEventCodeDuplicate &&
+      eventName.trim() &&
+      !isEventNameDuplicate &&
+      formEventType &&
+      formEventPlant &&
+      formEventTargetUnits.length > 0 &&
+      eventStartDate &&
+      eventTargetDate &&
+      formEventCoordinator
+    );
+  }, [
+    formEventCode,
+    isEventCodeDuplicate,
+    eventName,
+    isEventNameDuplicate,
+    formEventType,
+    formEventPlant,
+    formEventTargetUnits,
+    eventStartDate,
+    eventTargetDate,
+    formEventCoordinator
+  ]);
+
+  const eventDurationDays = useMemo(() => {
+    if (!eventStartDate || !eventTargetDate) return null;
+    const s = new Date(eventStartDate).getTime();
+    const e = new Date(eventTargetDate).getTime();
+    if (isNaN(s) || isNaN(e) || e < s) return null;
+    return Math.max(1, Math.round((e - s) / 86400000) + 1);
+  }, [eventStartDate, eventTargetDate]);
+
+  const resetEventForm = () => {
+    setFormEventCode('');
+    setEventName('');
+    setFormEventType('Annual Turnaround (TA)');
+    setFormEventPlant('Phra Khanong');
+    setFormEventTargetUnits(['S2 - APS-1, APS-2, FCCU, GOHF-3']);
+    setEventStartDate('');
+    setEventTargetDate('');
+    setEventMilestone('');
+    setFormEventCoordinator(JOB_LEAD_OPTIONS[1]);
+    setFormEventDescription('');
+    setFormEventStatus('Planning');
+    setCreatedEventFeedback(null);
+  };
+
+  const handleGenerateEventCode = () => {
+    const pCode = formEventPlant === 'Sriracha' ? 'SR' : formEventPlant === 'All Plants' ? 'ALL' : 'PK';
+    const seq = String(events.length + 1).padStart(2, '0');
+    const rand = Math.floor(10 + Math.random() * 89);
+    setFormEventCode(`EVT-${pCode}-2026-${seq}${rand}`);
+  };
+
+  const handleFillSampleEvent = () => {
+    const pCode = formEventPlant === 'Sriracha' ? 'SR' : 'PK';
+    const rand = Math.floor(10 + Math.random() * 89);
+    setFormEventCode(`EVT-${pCode}-2026-TA${rand}`);
+    setEventName(`Turnaround S2 Crude & FCCU Campaign ${rand}`);
+    setFormEventType('Annual Turnaround (TA)');
+    setFormEventPlant('Phra Khanong');
+    setFormEventTargetUnits(['S1 - CCR, SRU, TGCU, Utility', 'S2 - APS-1, APS-2, FCCU, GOHF-3']);
+    setEventStartDate('2026-11-01');
+    setEventTargetDate('2026-11-20');
+    setEventMilestone('S2 Crude Fractionator & Overhead Condenser Mechanical Completion (RFSU)');
+    setFormEventCoordinator(JOB_LEAD_OPTIONS[1]);
+    setFormEventDescription('Major refinery turnaround covering static column tray replacement, heat exchanger bundle hydro-jetting, safety valve recertification, and Flange Police QA sign-off.');
+    setFormEventStatus('Active');
+  };
+
+  const toggleEventTargetUnit = (unit: string) => {
+    setFormEventTargetUnits(prev =>
+      prev.includes(unit) ? prev.filter(u => u !== unit) : [...prev, unit]
+    );
+  };
+
+  const applyEventToJobForm = (ev: TurnoverEventRecord) => {
+    setFormSelectedEventName(ev.eventName);
+    if (ev.plant === 'Phra Khanong' || ev.plant === 'Sriracha') {
+      setSelectedPlant(ev.plant);
+    }
+    if (ev.targetUnits && ev.targetUnits.length > 0) {
+      setFormAreaUnit(ev.targetUnits[0]);
+    }
+    if (ev.startDate) setFormTargetStartDate(ev.startDate);
+    if (ev.targetTurnoverDate) setFormPlannedTurnoverDate(ev.targetTurnoverDate);
+    if (ev.coordinator) setFormJobLead(ev.coordinator);
+  };
+
+  const handleCreateEventSubmit = (e: React.FormEvent, proceedToJob = false) => {
+    e.preventDefault();
+    if (!isEventFormValid) return;
+
+    const created = createEvent({
+      eventCode: formEventCode.trim(),
+      eventName: eventName.trim(),
+      eventType: formEventType,
+      plant: formEventPlant,
+      targetUnits: formEventTargetUnits,
+      startDate: eventStartDate,
+      targetTurnoverDate: eventTargetDate,
+      milestone: eventMilestone.trim() || 'Mechanical Completion & Ready for Startup (RFSU)',
+      coordinator: formEventCoordinator,
+      description: formEventDescription.trim(),
+      status: formEventStatus
+    });
+
+    setCreatedEventFeedback(created);
+    applyEventToJobForm(created);
+
+    if (proceedToJob) {
+      setCreatePackageMode('single');
+    }
+  };
+
+  const handleQuickCreateEvent = () => {
+    if (!quickEventName.trim()) return;
+    if (checkEventExists(quickEventName.trim())) {
+      alert(isTh ? `ชื่อ Event "${quickEventName.trim()}" มีอยู่ในระบบแล้ว` : `Event "${quickEventName.trim()}" already exists.`);
+      return;
+    }
+    const pCode = selectedPlant === 'Sriracha' ? 'SR' : 'PK';
+    const code = quickEventCode.trim() || `EVT-${pCode}-2026-${String(events.length + 1).padStart(2, '0')}`;
+    const created = createEvent({
+      eventCode: code,
+      eventName: quickEventName.trim(),
+      eventType: quickEventType,
+      plant: selectedPlant,
+      targetUnits: formAreaUnit ? [formAreaUnit] : ['S2 - APS-1, APS-2, FCCU, GOHF-3'],
+      startDate: quickEventStart,
+      targetTurnoverDate: quickEventTarget,
+      coordinator: formJobLead || JOB_LEAD_OPTIONS[1],
+      status: 'Active'
+    });
+    applyEventToJobForm(created);
+    setQuickEventCode('');
+    setQuickEventName('');
+    setIsQuickEventOpen(false);
+  };
+
+  // Filtered Events for Registry Panel
+  const filteredRegistryEvents = useMemo(() => {
+    return events.filter(ev => {
+      if (eventRegistryPlantFilter !== 'All' && ev.plant !== 'All Plants' && ev.plant !== eventRegistryPlantFilter) {
+        return false;
+      }
+      if (eventRegistrySearch.trim()) {
+        const q = eventRegistrySearch.toLowerCase().trim();
+        const matchName = ev.eventName.toLowerCase().includes(q);
+        const matchCode = ev.eventCode.toLowerCase().includes(q);
+        const matchType = ev.eventType.toLowerCase().includes(q);
+        const matchCoord = (ev.coordinator || '').toLowerCase().includes(q);
+        if (!matchName && !matchCode && !matchType && !matchCoord) return false;
+      }
+      return true;
+    });
+  }, [events, eventRegistryPlantFilter, eventRegistrySearch]);
+
+  // All available Event options for Job dropdown (combines registered Events + any custom event names in jobs)
+  const allAvailableEventNames = useMemo(() => {
+    const seen = new Set<string>();
+    const list: string[] = [];
+    events.forEach(ev => {
+      if (ev.eventName && !seen.has(ev.eventName)) {
+        seen.add(ev.eventName);
+        list.push(ev.eventName);
+      }
+    });
+    jobs.forEach(j => {
+      if (j.eventName && !seen.has(j.eventName)) {
+        seen.add(j.eventName);
+        list.push(j.eventName);
+      }
+    });
+    return list;
+  }, [events, jobs]);
+
+  const activeSelectedEventRecord = useMemo(() => {
+    return events.find(ev => ev.eventName === formSelectedEventName) || null;
+  }, [events, formSelectedEventName]);
 
   // Handle Bulk Batch Creation with Duplicate Check & Global Live Sync
   const handleBatchCreateJobs = (newJobs: JobRecord[]) => {
@@ -1139,7 +1369,7 @@ export default function JobLocationTurnoverPrototype({
       id: newId,
       jobNo: cleanJobId,
       title: `${cleanJobId} — ${formJobDescription.trim().slice(0, 45)}${formJobDescription.length > 45 ? '...' : ''}`,
-      eventName: `${selectedPlant} Turnaround 2026`,
+      eventName: formSelectedEventName.trim() || `${selectedPlant} Turnaround 2026`,
       plant: selectedPlant,
       unit: formAreaUnit,
       unitId: formAreaUnit.split(' - ')[0]?.toLowerCase() || 's1',
@@ -1601,7 +1831,7 @@ export default function JobLocationTurnoverPrototype({
               isVerified: true,
               verifiedBy: leadName.trim(),
               verificationTimestamp: verifyTime,
-              punchStatus: 'Closed' as PunchStatusTAM,
+              punchStatus: 'Closed' as PunchStatus,
               status: 'Resolved' as 'Resolved'
             };
           }
@@ -2145,6 +2375,19 @@ export default function JobLocationTurnoverPrototype({
                   <button
                     type="button"
                     onClick={() => {
+                      resetEventForm();
+                      setCreatePackageMode('event');
+                      setIsCreateFormOpen(true);
+                    }}
+                    className="h-12 px-5 rounded-xl bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold text-sm shadow-lg shadow-teal-600/25 flex items-center gap-2 transition-all cursor-pointer"
+                  >
+                    <Calendar size={17} />
+                    <span>{isTh ? 'สร้าง Event ใหม่' : 'Create Event'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
                       resetCreateForm();
                       setCreatePackageMode('single');
                       setIsCreateFormOpen(true);
@@ -2152,7 +2395,7 @@ export default function JobLocationTurnoverPrototype({
                     className="h-12 px-6 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-sm shadow-lg shadow-emerald-600/25 flex items-center gap-2.5 transition-all cursor-pointer"
                   >
                     <Plus size={18} className="stroke-[3]" />
-                    <span>{isTh ? 'สร้าง Event & Job ใหม่' : 'Create Event & Job'}</span>
+                    <span>{isTh ? 'สร้าง Job ใหม่' : 'Create Job'}</span>
                   </button>
 
                   <button
@@ -2171,11 +2414,11 @@ export default function JobLocationTurnoverPrototype({
             </div>
           ) : (
             /* ===============================================================
-               1B: FIELD-OPTIMIZED CREATION FORM (DEDICATED FORM PAGE)
+               1B: UNIFIED CREATE EVENT & JOB WORKSPACE
                =============================================================== */
             <div className="space-y-6">
               {/* Back Bar & Form Header */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
@@ -2194,49 +2437,645 @@ export default function JobLocationTurnoverPrototype({
                   </button>
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-mono">
-                        {isTh ? 'โหมดสร้างงานหน้างาน' : 'Field Entry Mode'}
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-mono">
+                        {isTh ? 'ระบบบริหารจัดการ Event & Job' : 'Event & Job Creation Center'}
                       </span>
                       <span className="text-slate-400 text-xs">
-                        {isTh ? '· กำหนดหมุดหมายโรงกลั่นและตำแหน่งหน้างาน' : '· Plant Milestone & Location Binding'}
+                        {isTh
+                          ? `· มี ${events.length} อีเวนต์ และ ${jobs.length} แพ็กเกจงานในระบบ`
+                          : `· ${events.length} Active Events & ${jobs.length} Job Packages`}
                       </span>
                     </div>
                     <h2 className="text-lg sm:text-xl font-black text-slate-900 dark:text-slate-100 tracking-tight mt-0.5">
-                      {isTh ? 'แบบฟอร์มสร้าง Event & Job หน้างาน' : 'On-Site Job Creation Form'}
+                      {createPackageMode === 'event'
+                        ? (isTh ? 'สร้างและบริหารจัดการ Event (Create & Manage Turnaround Event)' : 'Create & Manage Turnaround Event')
+                        : createPackageMode === 'single'
+                          ? (isTh ? 'สร้างแพ็กเกจงานเดี่ยวและผูกกับ Event (Create Job Package)' : 'Create Single Job & Bind to Event')
+                          : (isTh ? 'นำเข้าแพ็กเกจงานแบบกลุ่มภายใต้ Event (Bulk Job Ingestion)' : 'Bulk Job Ingestion by Event')}
                     </h2>
                   </div>
                 </div>
 
-                {/* Segmented Mode Selector Button Group */}
-                <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700 shrink-0 self-start sm:self-auto">
+                {/* 3-Tab Segmented Mode Selector Button Group */}
+                <div className="inline-flex flex-wrap rounded-xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700 shrink-0 self-start lg:self-auto gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setCreatePackageMode('event')}
+                    className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      createPackageMode === 'event'
+                        ? 'bg-teal-600 text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Calendar size={14} />
+                    <span>{isTh ? '1. สร้าง Event (Create Event)' : '1. Create Event'}</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${
+                      createPackageMode === 'event' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                    }`}>
+                      {events.length}
+                    </span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => setCreatePackageMode('single')}
-                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${createPackageMode === 'single'
-                      ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-300 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                      }`}
+                    className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      createPackageMode === 'single'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
                   >
                     <FileText size={14} />
-                    <span>{isTh ? 'แบบฟอร์มเดี่ยว' : 'Single Job Form'}</span>
+                    <span>{isTh ? '2. สร้าง Job เดี่ยว (Single Job)' : '2. Single Job Form'}</span>
                   </button>
+
                   <button
                     type="button"
                     onClick={() => setCreatePackageMode('bulk')}
-                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${createPackageMode === 'bulk'
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                      }`}
+                    className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      createPackageMode === 'bulk'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
                   >
                     <Layers size={14} />
-                    <span>{isTh ? 'นำเข้าแบบกลุ่ม' : 'Bulk Ingestion'}</span>
-                    <span className="bg-emerald-500/30 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">50+</span>
+                    <span>{isTh ? '3. นำเข้า Job กลุ่ม (Bulk)' : '3. Bulk Ingestion'}</span>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-bold ${
+                      createPackageMode === 'bulk' ? 'bg-white/20 text-white' : 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+                    }`}>50+</span>
                   </button>
                 </div>
               </div>
 
-              {createPackageMode === 'bulk' ? (
+              {createPackageMode === 'event' ? (
+                /* ===============================================================
+                   MODE 1: CREATE & MANAGE TURNAROUND EVENT
+                   =============================================================== */
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in duration-200">
+                  {/* Left 7 Cols: Create Event Form */}
+                  <div className="lg:col-span-7 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-6 space-y-6">
+                    <div className="border-b border-slate-100 dark:border-slate-800 pb-4 flex items-center justify-between gap-3 flex-wrap">
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                          <Calendar className="text-teal-600 dark:text-teal-400" size={20} />
+                          <span>{isTh ? 'ลงทะเบียน Event ซ่อมบำรุงใหญ่ / Turnaround ใหม่' : 'Register New Turnaround / Maintenance Event'}</span>
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {isTh
+                            ? 'กำหนดรหัส Event ช่วงเวลาดำเนินงาน โรงกลั่น หน่วยผลิตเป้าหมาย และผู้ประสานงานหลัก ก่อนเปิดแพ็กเกจงาน (Job Packages)'
+                            : 'Define event code, schedule window, target refinery units, and turnaround coordinator to group job packages.'}
+                        </p>
+                      </div>
+                      <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${
+                        isEventFormValid
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                          : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                      }`}>
+                        {isEventFormValid ? (
+                          <>
+                            <CheckCircle2 size={13} className="text-emerald-600" />
+                            <span>{isTh ? 'พร้อมบันทึก Event' : 'Ready to Create Event'}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-rose-500 font-bold">*</span>
+                            <span>{isTh ? 'กรอกข้อมูลที่มีเครื่องหมาย *' : 'Fill Required Fields *'}</span>
+                          </>
+                        )}
+                      </span>
+                    </div>
+
+                    {/* Created Event Success Callout */}
+                    {createdEventFeedback && (
+                      <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-in fade-in">
+                        <div className="flex items-start gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 mt-0.5">
+                            <CheckCircle2 size={18} />
+                          </div>
+                          <div>
+                            <div className="text-xs font-black text-emerald-900 dark:text-emerald-200">
+                              {isTh ? `สร้าง Event "${createdEventFeedback.eventName}" สำเร็จแล้ว!` : `Event "${createdEventFeedback.eventName}" Created!`}
+                            </div>
+                            <div className="text-[11px] text-emerald-700 dark:text-emerald-300 font-mono mt-0.5">
+                              {createdEventFeedback.eventCode} • {createdEventFeedback.plant} • {createdEventFeedback.startDate} → {createdEventFeedback.targetTurnoverDate}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              applyEventToJobForm(createdEventFeedback);
+                              setCreatePackageMode('single');
+                            }}
+                            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer"
+                          >
+                            <Plus size={14} />
+                            <span>{isTh ? 'สร้าง Job ใน Event นี้' : 'Add Job to Event'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFormSelectedEventName(createdEventFeedback.eventName);
+                              setCreatePackageMode('bulk');
+                            }}
+                            className="px-3 py-2 rounded-xl bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 text-xs font-bold cursor-pointer"
+                          >
+                            {isTh ? 'Bulk Import' : 'Bulk Import'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    <form onSubmit={(e) => handleCreateEventSubmit(e, false)} className="space-y-5">
+                      {/* Section 1: Event Identity & Classification */}
+                      <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                          {/* Event Code */}
+                          <div className="md:col-span-5 space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                                <Hash size={14} className={isEventCodeDuplicate ? 'text-rose-600' : 'text-teal-600 dark:text-teal-400'} />
+                                <span>{isTh ? 'รหัส Event (Event Code)' : 'Event Code'} <span className="text-rose-500 font-bold">*</span></span>
+                              </label>
+                              <button
+                                type="button"
+                                onClick={handleGenerateEventCode}
+                                className="text-[10px] font-bold text-teal-600 dark:text-teal-400 hover:underline cursor-pointer"
+                              >
+                                {isTh ? 'สร้างรหัสอัตโนมัติ' : 'Auto-Gen'}
+                              </button>
+                            </div>
+                            <input
+                              type="text"
+                              required
+                              value={formEventCode}
+                              onChange={e => setFormEventCode(e.target.value)}
+                              placeholder="e.g. EVT-PK-2026-TA2"
+                              className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-mono font-bold outline-none transition-all ${
+                                isEventCodeDuplicate
+                                  ? 'border-rose-500 bg-rose-50/40 dark:bg-rose-950/30 text-rose-900 dark:text-rose-100'
+                                  : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600'
+                              }`}
+                            />
+                            {isEventCodeDuplicate && (
+                              <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400">
+                                {isTh ? 'รหัส Event นี้มีอยู่ในระบบแล้ว' : 'Event Code already exists'}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Event Name */}
+                          <div className="md:col-span-7 space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                                <Sparkles size={14} className={isEventNameDuplicate ? 'text-rose-600' : 'text-emerald-600 dark:text-emerald-400'} />
+                                <span>{isTh ? 'ชื่อ Event (Event Name)' : 'Event Name'} <span className="text-rose-500 font-bold">*</span></span>
+                              </label>
+                              {isEventNameDuplicate && (
+                                <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400">
+                                  {isTh ? 'ชื่อซ้ำในระบบ' : 'Duplicate Name'}
+                                </span>
+                              )}
+                            </div>
+                            <input
+                              type="text"
+                              required
+                              value={eventName}
+                              onChange={e => setEventName(e.target.value)}
+                              placeholder={isTh ? 'เช่น Annual Turnaround 2026 Phase 2 หรือ S1 Catalyst Changeout' : 'e.g. Annual Turnaround 2026 Phase 2'}
+                              className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-bold outline-none transition-all ${
+                                isEventNameDuplicate
+                                  ? 'border-rose-500 bg-rose-50/40 dark:bg-rose-950/30 text-rose-900 dark:text-rose-100'
+                                  : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600'
+                              }`}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Event Type & Status */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                              <Layers size={14} className="text-blue-600 dark:text-blue-400" />
+                              <span>{isTh ? 'ประเภท Event (Event Category)' : 'Event Category'} <span className="text-rose-500 font-bold">*</span></span>
+                            </label>
+                            <select
+                              value={formEventType}
+                              onChange={e => setFormEventType(e.target.value)}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-900 dark:text-slate-100 outline-none cursor-pointer"
+                            >
+                              <option value="Annual Turnaround (TA)">Annual Turnaround (TA) — หยุดซ่อมบำรุงใหญ่ประจำปี</option>
+                              <option value="Major Overhaul">Major Overhaul — งานซ่อมบำรุงใหญ่ตามวาระ</option>
+                              <option value="Unit Pit-Stop / Mini-TA">Unit Pit-Stop / Mini-TA — งานหยุดซ่อมเฉพาะหน่วยผลิต</option>
+                              <option value="Catalyst Changeout">Catalyst Changeout — งานเปลี่ยนสารเร่งปฏิกิริยา</option>
+                              <option value="Emergency Shutdown">Emergency Shutdown — งานหยุดซ่อมฉุกเฉิน</option>
+                              <option value="Commissioning & Startup">Commissioning & Startup — งานเดินเครื่องและทดสอบระบบใหม่</option>
+                            </select>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                              <Activity size={14} className="text-emerald-600 dark:text-emerald-400" />
+                              <span>{isTh ? 'สถานะ Event (Event Status)' : 'Event Status'} <span className="text-rose-500 font-bold">*</span></span>
+                            </label>
+                            <select
+                              value={formEventStatus}
+                              onChange={e => setFormEventStatus(e.target.value as any)}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-900 dark:text-slate-100 outline-none cursor-pointer"
+                            >
+                              <option value="Planning">{isTh ? 'Planning — อยู่ระหว่างวางแผนและเตรียมแพ็กเกจ' : 'Planning — Scope & Package Preparation'}</option>
+                              <option value="Active">{isTh ? 'Active — กำลังดำเนินงานซ่อมบำรุงหน้างาน' : 'Active — Field Execution in Progress'}</option>
+                              <option value="Turnover Phase">{isTh ? 'Turnover Phase — อยู่ระหว่างเดินตรวจส่งมอบระบบ (T/O)' : 'Turnover Phase — System Walkdown & Sign-off'}</option>
+                              <option value="Completed">{isTh ? 'Completed — ส่งมอบระบบเสร็จสมบูรณ์' : 'Completed — Handover Closed'}</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section 2: Plant & Target Units */}
+                      <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                            <Building2 size={14} className="text-teal-600 dark:text-teal-400" />
+                            <span>{isTh ? 'โรงงานที่จัด Event (Plant Scope)' : 'Refinery Plant Scope'} <span className="text-rose-500 font-bold">*</span></span>
+                          </label>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                            {(['Phra Khanong', 'Sriracha', 'All Plants'] as const).map(pOption => (
+                              <button
+                                key={pOption}
+                                type="button"
+                                onClick={() => setFormEventPlant(pOption)}
+                                className={`p-2.5 rounded-xl border-2 flex items-center justify-between transition-all cursor-pointer text-left ${
+                                  formEventPlant === pOption
+                                    ? 'bg-teal-50 dark:bg-teal-950/40 border-teal-500 shadow-2xs'
+                                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className={`w-7 h-7 rounded-lg text-[11px] font-bold flex items-center justify-center shrink-0 ${
+                                    formEventPlant === pOption ? 'bg-teal-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                                  }`}>
+                                    {pOption === 'Phra Khanong' ? 'PK' : pOption === 'Sriracha' ? 'SR' : 'ALL'}
+                                  </span>
+                                  <div className="min-w-0">
+                                    <div className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">{pOption}</div>
+                                    <div className="text-[10px] text-slate-400 truncate">
+                                      {pOption === 'Phra Khanong'
+                                        ? (isTh ? 'โรงกลั่นพระโขนง' : 'Bangkok')
+                                        : pOption === 'Sriracha'
+                                          ? (isTh ? 'โรงกลั่นศรีราชา' : 'Chonburi')
+                                          : (isTh ? 'ครอบคลุมทั้ง 2 โรงงาน' : 'Both Refineries')}
+                                    </div>
+                                  </div>
+                                </div>
+                                {formEventPlant === pOption && <CheckCircle2 size={15} className="text-teal-600 dark:text-teal-400 shrink-0" />}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Target Units Multi-select */}
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                              <MapPin size={14} className="text-emerald-600 dark:text-emerald-400" />
+                              <span>{isTh ? 'เขตหน่วยผลิตเป้าหมาย (Target Area / Units)' : 'Target Area / Units'} <span className="text-rose-500 font-bold">*</span></span>
+                            </label>
+                            <span className="text-[10px] text-slate-400">
+                              {isTh ? `เลือกแล้ว ${formEventTargetUnits.length} เขตพื้นที่` : `${formEventTargetUnits.length} selected`}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            {AREA_UNIT_OPTIONS.map(unitOpt => {
+                              const isChecked = formEventTargetUnits.includes(unitOpt);
+                              return (
+                                <button
+                                  key={unitOpt}
+                                  type="button"
+                                  onClick={() => toggleEventTargetUnit(unitOpt)}
+                                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                                    isChecked
+                                      ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-emerald-900 dark:text-emerald-200 font-bold'
+                                      : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                                  }`}
+                                >
+                                  <span className="text-[11px] leading-tight truncate">{unitOpt}</span>
+                                  <span className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border ${
+                                    isChecked ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-slate-300 dark:border-slate-600'
+                                  }`}>
+                                    {isChecked && <Check size={11} />}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section 3: Schedule Window, Coordinator & Milestone */}
+                      <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                              <Calendar size={14} className="text-blue-600 dark:text-blue-400" />
+                              <span>{isTh ? 'วันเริ่มต้น Event (Start Date)' : 'Event Start Date'} <span className="text-rose-500 font-bold">*</span></span>
+                            </label>
+                            <input
+                              type="date"
+                              required
+                              value={eventStartDate}
+                              onChange={e => setEventStartDate(e.target.value)}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/60 text-xs font-medium text-slate-900 dark:text-slate-100 outline-none cursor-pointer"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                                <Clock size={14} className="text-amber-600 dark:text-amber-400" />
+                                <span>{isTh ? 'เป้าหมายวันส่งมอบระบบ (Target Handover)' : 'Target Handover Date'} <span className="text-rose-500 font-bold">*</span></span>
+                              </label>
+                              {eventDurationDays !== null && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-mono">
+                                  {eventDurationDays} {isTh ? 'วัน' : 'Days'}
+                                </span>
+                              )}
+                            </div>
+                            <input
+                              type="date"
+                              required
+                              value={eventTargetDate}
+                              onChange={e => setEventTargetDate(e.target.value)}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/60 text-xs font-medium text-slate-900 dark:text-slate-100 outline-none cursor-pointer"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                              <UserCheck size={14} className="text-emerald-600 dark:text-emerald-400" />
+                              <span>{isTh ? 'ผู้จัดการ / ผู้ประสานงาน Event (Event Coordinator)' : 'Event Coordinator / Lead'} <span className="text-rose-500 font-bold">*</span></span>
+                            </label>
+                            <select
+                              value={formEventCoordinator}
+                              onChange={e => setFormEventCoordinator(e.target.value)}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-900 dark:text-slate-100 outline-none cursor-pointer"
+                            >
+                              {JOB_LEAD_OPTIONS.map(lead => (
+                                <option key={lead} value={lead}>{lead}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                              <Award size={14} className="text-amber-600 dark:text-amber-400" />
+                              <span>{isTh ? 'หมุดหมายสำคัญ (Key RFSU Milestone)' : 'Key RFSU Milestone'}</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={eventMilestone}
+                              onChange={e => setEventMilestone(e.target.value)}
+                              placeholder={isTh ? 'เช่น Mechanical Completion & Ready for Startup (RFSU)' : 'e.g. Mechanical Completion & Ready for Startup (RFSU)'}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                            <FileText size={14} className="text-teal-600 dark:text-teal-400" />
+                            <span>{isTh ? 'รายละเอียดขอบเขตของ Event (Event Scope & Objectives)' : 'Event Scope & Objectives'}</span>
+                          </label>
+                          <textarea
+                            rows={2}
+                            value={formEventDescription}
+                            onChange={e => setFormEventDescription(e.target.value)}
+                            placeholder={isTh ? 'ระบุขอบเขตของรอบงานซ่อมบำรุง เป้าหมายการตรวจสอบ และข้อกำหนดความปลอดภัยหลัก...' : 'Describe turnaround campaign objectives, critical units, and safety milestones...'}
+                            className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 outline-none resize-y"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Event Form Action Bar */}
+                      <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleFillSampleEvent}
+                            className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer border border-slate-200 dark:border-slate-700 flex items-center gap-1.5"
+                          >
+                            <Sparkles size={13} className="text-teal-500" />
+                            <span>{isTh ? 'เติมตัวอย่าง Event' : 'Fill Sample Event'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={resetEventForm}
+                            className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1"
+                          >
+                            <RefreshCw size={13} />
+                            <span>{isTh ? 'ล้างข้อมูล' : 'Reset'}</span>
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <button
+                            type="submit"
+                            disabled={!isEventFormValid}
+                            className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                              isEventFormValid
+                                ? 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white cursor-pointer shadow-xs'
+                                : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                            }`}
+                          >
+                            <Check size={15} />
+                            <span>{isTh ? 'บันทึกสร้าง Event' : 'Save Event'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={!isEventFormValid}
+                            onClick={(e) => handleCreateEventSubmit(e as any, true)}
+                            className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2 ${
+                              isEventFormValid
+                                ? 'bg-teal-600 hover:bg-teal-700 text-white shadow-teal-500/20 cursor-pointer active:scale-95'
+                                : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                            }`}
+                          >
+                            <Plus size={15} />
+                            <span>{isTh ? 'สร้าง Event & ไปหน้าสร้าง Job ต่อ' : 'Save Event & Create Job'}</span>
+                            <ArrowRight size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    </form>
+                  </div>
+
+                  {/* Right 5 Cols: Active Event Registry & Quick Launchpad */}
+                  <div className="lg:col-span-5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 sm:p-6 flex flex-col space-y-4">
+                    <div className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+                      <div>
+                        <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                          <Workflow size={18} className="text-emerald-600 dark:text-emerald-400" />
+                          <span>{isTh ? 'ทะเบียน Event ในระบบ (Active Event Registry)' : 'Active Event Registry'}</span>
+                        </h3>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          {isTh ? 'คลิกเลือก Event เพื่อเพิ่มงานเดี่ยวหรือนำเข้างานแบบกลุ่มได้ทันที' : 'Select any event below to add single or bulk jobs directly.'}
+                        </p>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
+                        {filteredRegistryEvents.length} {isTh ? 'รายการ' : 'Events'}
+                      </span>
+                    </div>
+
+                    {/* Filter & Search Bar */}
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <div className="relative flex-1">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          value={eventRegistrySearch}
+                          onChange={e => setEventRegistrySearch(e.target.value)}
+                          placeholder={isTh ? 'ค้นหาชื่อหรือรหัส Event...' : 'Search event name or code...'}
+                          className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs outline-none"
+                        />
+                      </div>
+                      <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-0.5 border border-slate-200 dark:border-slate-700 shrink-0">
+                        {(['All', 'Phra Khanong', 'Sriracha'] as const).map(pf => (
+                          <button
+                            key={pf}
+                            type="button"
+                            onClick={() => setEventRegistryPlantFilter(pf)}
+                            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer transition-all ${
+                              eventRegistryPlantFilter === pf
+                                ? 'bg-white dark:bg-slate-700 text-teal-600 dark:text-teal-300 shadow-2xs'
+                                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                            }`}
+                          >
+                            {pf === 'All' ? (isTh ? 'ทั้งหมด' : 'All') : pf === 'Phra Khanong' ? 'PK' : 'SR'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Event Cards List */}
+                    <div className="space-y-3 max-h-[560px] overflow-y-auto custom-scrollbar pr-1">
+                      {filteredRegistryEvents.map(ev => {
+                        const linkedJobs = jobs.filter(j => j.eventName === ev.eventName);
+                        const completedCount = linkedJobs.filter(isJobCompleted).length;
+                        const progressPct = linkedJobs.length > 0 ? Math.round((completedCount / linkedJobs.length) * 100) : 0;
+                        const isSelected = formSelectedEventName === ev.eventName;
+
+                        return (
+                          <div
+                            key={ev.id}
+                            className={`p-4 rounded-2xl border transition-all space-y-3 ${
+                              isSelected
+                                ? 'border-emerald-500 bg-emerald-50/30 dark:bg-emerald-950/20 shadow-xs'
+                                : 'border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-slate-300 dark:hover:border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="space-y-1 min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-200/80 dark:bg-slate-700 text-slate-800 dark:text-slate-200">
+                                    {ev.eventCode}
+                                  </span>
+                                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                    ev.plant === 'Sriracha'
+                                      ? 'bg-sky-100 dark:bg-sky-950/70 text-sky-700 dark:text-sky-300'
+                                      : ev.plant === 'All Plants'
+                                        ? 'bg-purple-100 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300'
+                                        : 'bg-teal-100 dark:bg-teal-950/70 text-teal-700 dark:text-teal-300'
+                                  }`}>
+                                    {ev.plant}
+                                  </span>
+                                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                    ev.status === 'Completed'
+                                      ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                                      : ev.status === 'Turnover Phase'
+                                        ? 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+                                        : 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
+                                  }`}>
+                                    {ev.status}
+                                  </span>
+                                </div>
+                                <h4 className="text-sm font-black text-slate-900 dark:text-slate-100 truncate">
+                                  {ev.eventName}
+                                </h4>
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                  {ev.eventType} • {ev.startDate} → {ev.targetTurnoverDate}
+                                </p>
+                              </div>
+
+                              {linkedJobs.length === 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => deleteEvent(ev.id)}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                                  title={isTh ? 'ลบ Event นี้' : 'Delete Event'}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Progress & Linked Jobs */}
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="text-slate-500 font-medium">
+                                  {isTh ? `แพ็กเกจงานที่ผูกอยู่: ${linkedJobs.length} งาน` : `Linked Packages: ${linkedJobs.length} jobs`}
+                                </span>
+                                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                                  {completedCount}/{linkedJobs.length} T/O ({progressPct}%)
+                                </span>
+                              </div>
+                              <div className="w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                                <div
+                                  className="h-full bg-emerald-500 rounded-full transition-all"
+                                  style={{ width: `${progressPct}%` }}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Quick Action Buttons */}
+                            <div className="flex items-center gap-2 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  applyEventToJobForm(ev);
+                                  setCreatePackageMode('single');
+                                }}
+                                className="flex-1 py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
+                              >
+                                <Plus size={13} />
+                                <span>{isTh ? 'สร้าง Job ใน Event นี้' : '+ Add Single Job'}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFormSelectedEventName(ev.eventName);
+                                  setCreatePackageMode('bulk');
+                                }}
+                                className="py-1.5 px-3 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-[11px] font-bold flex items-center gap-1 transition cursor-pointer"
+                              >
+                                <Layers size={12} className="text-emerald-600 dark:text-emerald-400" />
+                                <span>{isTh ? 'นำเข้ากลุ่ม' : 'Bulk Import'}</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ) : createPackageMode === 'bulk' ? (
                 <BulkTurnoverJobIngestion
+                  selectedEventName={formSelectedEventName}
+                  onSelectEventName={setFormSelectedEventName}
+                  onOpenCreateEvent={() => setCreatePackageMode('event')}
                   onClose={() => setCreatePackageMode('single')}
                   onSwitchToSingle={() => setCreatePackageMode('single')}
                   onBatchCreateTurnoverJobs={(newTurnoverJobs) => {
@@ -2263,8 +3102,8 @@ export default function JobLocationTurnoverPrototype({
                           </h2>
                           <p className="text-xs text-slate-500 mt-1">
                             {isTh
-                              ? 'กรอกข้อมูลฟอร์ม 12 รายการ กำหนดพิกัดผังโรงกลั่น และสร้างรหัส QR Code ประจำจุดปฏิบัติการ'
-                              : 'Fill in the 12 job specifications, pin plot plan location, and generate on-site QR Code.'}
+                              ? 'เลือก Event เป้าหมาย กรอกข้อมูลฟอร์ม 12 รายการ กำหนดพิกัดผังโรงกลั่น และสร้างรหัส QR Code ประจำจุดปฏิบัติการ'
+                              : 'Select Target Event, fill in the 12 job specifications, pin plot plan location, and generate on-site QR Code.'}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -2290,6 +3129,153 @@ export default function JobLocationTurnoverPrototype({
                     </div>
 
                     <form onSubmit={handleCreateJob} className="space-y-6">
+
+                      {/* STEP 1: EVENT SELECTION & INLINE QUICK CREATE EVENT */}
+                      <div className="p-4 sm:p-5 rounded-2xl bg-teal-50/50 dark:bg-teal-950/20 border border-teal-200/80 dark:border-teal-800/60 space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <label className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                            <Calendar size={15} className="text-teal-600 dark:text-teal-400" />
+                            <span>{isTh ? 'เลือก Event ซ่อมบำรุงที่สังกัด (Turnaround / Maintenance Event)' : 'Select Turnaround / Maintenance Event'} <span className="text-rose-500 font-bold">*</span></span>
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setIsQuickEventOpen(!isQuickEventOpen)}
+                              className="px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-[11px] font-bold flex items-center gap-1 transition cursor-pointer"
+                            >
+                              <Plus size={12} />
+                              <span>{isTh ? 'สร้าง Event ด่วน (Quick Event)' : 'Quick New Event'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setCreatePackageMode('event')}
+                              className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-700 text-[11px] font-bold hover:bg-teal-50 transition cursor-pointer"
+                            >
+                              {isTh ? 'จัดการ Event ทั้งหมด' : 'Manage Events'}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                          <div className="md:col-span-8">
+                            <select
+                              value={formSelectedEventName}
+                              onChange={e => {
+                                const val = e.target.value;
+                                setFormSelectedEventName(val);
+                                const found = events.find(ev => ev.eventName === val);
+                                if (found) {
+                                  applyEventToJobForm(found);
+                                }
+                              }}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-teal-300 dark:border-teal-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500/20 outline-none cursor-pointer"
+                            >
+                              {allAvailableEventNames.map(eName => {
+                                const evObj = events.find(ev => ev.eventName === eName);
+                                return (
+                                  <option key={eName} value={eName}>
+                                    {eName}{evObj ? ` (${evObj.eventCode} • ${evObj.plant})` : ''}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </div>
+
+                          <div className="md:col-span-4 flex justify-end">
+                            {activeSelectedEventRecord && (
+                              <button
+                                type="button"
+                                onClick={() => applyEventToJobForm(activeSelectedEventRecord)}
+                                className="w-full py-2 px-3 rounded-xl bg-white dark:bg-slate-800 hover:bg-teal-50 dark:hover:bg-slate-750 border border-teal-200 dark:border-teal-800 text-[11px] font-bold text-teal-700 dark:text-teal-300 flex items-center justify-center gap-1.5 transition cursor-pointer"
+                              >
+                                <RefreshCw size={12} />
+                                <span>{isTh ? 'ดึงค่าโรงงาน & วันที่จาก Event' : 'Sync Plant & Dates'}</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {activeSelectedEventRecord && (
+                          <div className="flex items-center justify-between gap-2 flex-wrap text-[11px] text-slate-600 dark:text-slate-400 pt-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono font-bold text-teal-700 dark:text-teal-300">{activeSelectedEventRecord.eventCode}</span>
+                              <span>•</span>
+                              <span>{activeSelectedEventRecord.eventType}</span>
+                              <span>•</span>
+                              <span>{isTh ? 'ช่วงเวลา:' : 'Window:'} <strong>{activeSelectedEventRecord.startDate} → {activeSelectedEventRecord.targetTurnoverDate}</strong></span>
+                            </div>
+                            {activeSelectedEventRecord.milestone && (
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300">
+                                🎯 {activeSelectedEventRecord.milestone}
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Inline Quick Event Creator Drawer */}
+                        {isQuickEventOpen && (
+                          <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-teal-300 dark:border-teal-700 space-y-3 animate-in fade-in">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-teal-700 dark:text-teal-300 flex items-center gap-1.5">
+                                <Sparkles size={13} />
+                                <span>{isTh ? 'สร้าง Event ใหม่ด่วน (พร้อมเลือกใช้งานทันที)' : 'Quick Create New Event'}</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setIsQuickEventOpen(false)}
+                                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <input
+                                type="text"
+                                value={quickEventCode}
+                                onChange={e => setQuickEventCode(e.target.value)}
+                                placeholder={isTh ? 'รหัส Event (เว้นว่างเพื่อสร้างอัตโนมัติ)' : 'Event Code (auto if blank)'}
+                                className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono"
+                              />
+                              <input
+                                type="text"
+                                value={quickEventName}
+                                onChange={e => setQuickEventName(e.target.value)}
+                                placeholder={isTh ? 'ชื่อ Event ใหม่ * เช่น S1 Mini-TA 2026' : 'New Event Name *'}
+                                className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold"
+                              />
+                              <input
+                                type="date"
+                                value={quickEventStart}
+                                onChange={e => setQuickEventStart(e.target.value)}
+                                className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
+                              />
+                              <input
+                                type="date"
+                                value={quickEventTarget}
+                                onChange={e => setQuickEventTarget(e.target.value)}
+                                className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
+                              />
+                            </div>
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setIsQuickEventOpen(false)}
+                                className="px-3 py-1.5 rounded-lg text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                              >
+                                {isTh ? 'ยกเลิก' : 'Cancel'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleQuickCreateEvent}
+                                disabled={!quickEventName.trim()}
+                                className="px-4 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer"
+                              >
+                                {isTh ? 'บันทึกและเลือก Event นี้' : 'Save & Select Event'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
 
                       {/* GENERAL JOB SPECIFICATIONS */}
                       <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 space-y-4">

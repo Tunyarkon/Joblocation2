@@ -11,9 +11,12 @@ import {
   ArrowRight,
   RefreshCw,
   Check,
-  X
+  X,
+  Calendar,
+  Plus
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { usePlantTurnShared } from '../../context/PlantTurnSharedContext';
 import { addCraneJob, getAllCraneJobs } from '../../data/craneOperationsData';
 import { exportToExcel, exportToCsv, parseExcelOrCsvFile, parseDelimitedText } from '../../utils/excelImportExport';
 import {
@@ -208,15 +211,28 @@ export interface ValidationErrorDetail {
 interface BulkCraneJobIngestionProps {
   onNavigateToRequests?: () => void;
   onSwitchToSingle?: () => void;
+  selectedEventName?: string;
+  onSelectEventName?: (eventName: string) => void;
+  onOpenCreateEvent?: () => void;
 }
 
 export default function BulkCraneJobIngestion({
   onNavigateToRequests,
-  onSwitchToSingle
+  onSwitchToSingle,
+  selectedEventName,
+  onSelectEventName,
+  onOpenCreateEvent
 }: BulkCraneJobIngestionProps) {
   const { language } = useLanguage();
   const isTh = language === 'th';
+  const { events } = usePlantTurnShared();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [localEventName, setLocalEventName] = useState<string>(
+    selectedEventName || events[0]?.eventName || 'Annual Turnaround 2026'
+  );
+  const activeEventName = selectedEventName || localEventName;
+  const activeEventRecord = events.find(e => e.eventName === activeEventName);
 
   // Core Data & Processing States
   const [validatedRows, setValidatedRows] = useState<BulkCraneRow[]>([]);
@@ -593,6 +609,8 @@ export default function BulkCraneJobIngestion({
           title: `${row.woNumber} - ${row.jobDescription.slice(0, 40)}`,
           description: row.jobDescription,
           plant: row.plant,
+          eventName: activeEventName || 'Annual Turnaround 2026',
+          eventCode: activeEventRecord?.eventCode,
           locationArea: row.locationArea,
           area: row.locationArea,
           equipmentTag: row.equipmentTag,
@@ -703,6 +721,61 @@ export default function BulkCraneJobIngestion({
               <span>CSV</span>
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* TARGET EVENT BINDING BAR */}
+      <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-900/60 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-start sm:items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 border border-blue-200 dark:border-blue-800">
+            <Calendar size={18} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold text-slate-900 dark:text-white">
+                {isTh ? 'ผูกชุดข้อมูลเครนที่นำเข้ากับ Event (Target Event Binding)' : 'Target Event Binding for Bulk Crane Jobs'}
+              </span>
+              {activeEventRecord && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
+                  {activeEventRecord.eventCode} • {activeEventRecord.plant}
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+              {activeEventRecord
+                ? `${activeEventRecord.eventType} (${activeEventRecord.startDate} → ${activeEventRecord.targetTurnoverDate})`
+                : (isTh ? 'เลือก Event ซ่อมบำรุงหรือแคมเปญงานยกที่ต้องการนำเข้าใบงานเครนทั้งหมด' : 'Select the turnaround or lifting campaign event to attach all imported crane jobs.')}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <select
+            value={activeEventName}
+            onChange={(e) => {
+              const val = e.target.value;
+              setLocalEventName(val);
+              if (onSelectEventName) onSelectEventName(val);
+            }}
+            className="px-3.5 py-2 rounded-xl border border-blue-300 dark:border-blue-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-900 dark:text-slate-100 outline-none cursor-pointer min-w-[240px]"
+          >
+            {events.map((ev) => (
+              <option key={ev.id} value={ev.eventName}>
+                {ev.eventName} ({ev.eventCode} • {ev.plant})
+              </option>
+            ))}
+          </select>
+
+          {onOpenCreateEvent && (
+            <button
+              type="button"
+              onClick={onOpenCreateEvent}
+              className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs shrink-0"
+            >
+              <Plus size={14} />
+              <span>{isTh ? 'สร้าง Event ใหม่' : '+ New Event'}</span>
+            </button>
+          )}
         </div>
       </div>
 

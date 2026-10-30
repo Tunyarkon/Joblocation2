@@ -18,7 +18,7 @@ export interface PunchItem {
   itemType?: PunchOrButtType; // 'Punch' | 'Butt'
   type?: string; // e.g. Flange Leaks / Gasket, Defect
   remedialWorks?: string;
-  category: PunchCategory;
+  category?: PunchCategory | string;
   punchCategory?: string;
   punchStatus?: string;
   description: string;
@@ -195,6 +195,85 @@ export interface EquipmentClosingData {
   fmeSweepDone: boolean;
   deBlindComplete: boolean;
 }
+
+export interface TurnoverEventRecord {
+  id: string;
+  eventCode: string;
+  eventName: string;
+  eventType: string;
+  plant: 'Phra Khanong' | 'Sriracha' | 'All Plants';
+  targetUnits: string[];
+  startDate: string;
+  targetTurnoverDate: string;
+  milestone?: string;
+  coordinator?: string;
+  description?: string;
+  status: 'Planning' | 'Active' | 'Turnover Phase' | 'Completed';
+  createdAt: string;
+}
+
+export const INITIAL_SHARED_EVENTS: TurnoverEventRecord[] = [
+  {
+    id: 'evt-101',
+    eventCode: 'EVT-PK-2026-TA1',
+    eventName: 'Annual Turnaround 2026',
+    eventType: 'Annual Turnaround (TA)',
+    plant: 'Phra Khanong',
+    targetUnits: ['S1 - CCR, SRU, TGCU, Utility', 'S2 - APS-1, APS-2, FCCU, GOHF-3'],
+    startDate: '2026-09-20',
+    targetTurnoverDate: '2026-10-15',
+    milestone: 'Full Crude & Reforming Circuit Ready for Startup (RFSU)',
+    coordinator: 'นายวิชัย เลิศวิทยา (Lead Turnaround Supervisor)',
+    description: 'Annual refinery turnaround covering crude overhead condensers, naphtha stabilizer reboilers, and pressure vessel statutory inspections.',
+    status: 'Turnover Phase',
+    createdAt: '2026-09-01'
+  },
+  {
+    id: 'evt-102',
+    eventCode: 'EVT-SR-2026-Q3',
+    eventName: 'Major Overhaul Q3',
+    eventType: 'Major Overhaul',
+    plant: 'Sriracha',
+    targetUnits: ['S2 - APS-1, APS-2, FCCU, GOHF-3', 'S3 - Offsite, Jetty'],
+    startDate: '2026-09-25',
+    targetTurnoverDate: '2026-10-10',
+    milestone: 'Vacuum Pipestill 2 & Transfer Pump Mechanical Completion',
+    coordinator: 'นายสมชาย ใจมั่น (Lead Mechanical / Static Engineer)',
+    description: 'Q3 Sriracha major mechanical overhaul for Vacuum Pipestill 2 complex, residue feed pumps, and transfer line tie-ins.',
+    status: 'Active',
+    createdAt: '2026-09-10'
+  },
+  {
+    id: 'evt-103',
+    eventCode: 'EVT-PK-2026-Q4',
+    eventName: 'Major Overhaul Q4 2026',
+    eventType: 'Major Overhaul',
+    plant: 'Phra Khanong',
+    targetUnits: ['S2 - APS-1, APS-2, FCCU, GOHF-3'],
+    startDate: '2026-10-01',
+    targetTurnoverDate: '2026-10-28',
+    milestone: 'Desalter Electrostatic Grid & Pre-Heat Train Box-Up',
+    coordinator: 'นายณัฐพล ชัยชนะ (Lead Instrument & Control Engineer)',
+    description: 'Scheduled Q4 overhaul for Desalter vessel electrostatic grids, crude pre-heat train cleaning, and control valve calibration.',
+    status: 'Active',
+    createdAt: '2026-09-15'
+  },
+  {
+    id: 'evt-104',
+    eventCode: 'EVT-SR-2026-VAC',
+    eventName: 'TA-2026 Vacuum Overhaul',
+    eventType: 'Unit Pit-Stop / Mini-TA',
+    plant: 'Sriracha',
+    targetUnits: ['S2 - APS-1, APS-2, FCCU, GOHF-3'],
+    startDate: '2026-10-05',
+    targetTurnoverDate: '2026-10-22',
+    milestone: 'Vacuum Heater & Ejector System Tightness Test',
+    coordinator: 'นายเกรียงไกร เก่งวิชา (Refinery Operations Unit Lead)',
+    description: 'Dedicated vacuum unit turnaround focusing on heater decoking, steam ejector nozzles, and overhead condenser bundle replacement.',
+    status: 'Planning',
+    createdAt: '2026-09-18'
+  }
+];
 
 // ==========================================
 // INITIAL BASE DATA
@@ -529,6 +608,13 @@ export interface PlantTurnSharedContextType {
   selectedJob: JobRecord;
   setSelectedJobId: (id: string) => void;
 
+  // Event Registry CRUD
+  events: TurnoverEventRecord[];
+  createEvent: (eventData: Partial<TurnoverEventRecord>) => TurnoverEventRecord;
+  updateEvent: (eventId: string, updates: Partial<TurnoverEventRecord>) => void;
+  deleteEvent: (eventId: string) => void;
+  checkEventExists: (nameOrCode: string, excludeId?: string) => boolean;
+
   // Job CRUD
   createJob: (jobData: Partial<JobRecord>) => JobRecord;
   updateJob: (jobId: string, updates: Partial<JobRecord>) => void;
@@ -624,12 +710,31 @@ export const normalizeJobRecord = (j: any): JobRecord => {
 
 const STORAGE_KEYS = {
   JOBS: 'plantturn_shared_jobs_v3',
+  EVENTS: 'plantturn_shared_events_v1',
   SELECTED_JOB_ID: 'plantturn_selected_job_id_v3',
   TASKS: 'plantturn_approval_tasks_v3',
   LOGS: 'plantturn_activity_logs_v3'
 };
 
 export const PlantTurnSharedProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  // Load persisted events or fallback to initial events
+  const [events, setEvents] = useState<TurnoverEventRecord[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEYS.EVENTS);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed;
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to parse saved events from localStorage', err);
+      }
+    }
+    return INITIAL_SHARED_EVENTS;
+  });
+
   // Load persisted jobs or fallback to initial data, always normalized
   const [jobs, setJobsState] = useState<JobRecord[]>(() => {
     if (typeof window !== 'undefined') {
@@ -707,6 +812,15 @@ export const PlantTurnSharedProvider: React.FC<{ children: ReactNode }> = ({ chi
       console.error('Storage write error for jobs', err);
     }
   }, [jobs]);
+
+  // Persist events on changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(events));
+    } catch (err) {
+      console.error('Storage write error for events', err);
+    }
+  }, [events]);
 
   // Synchronize across tabs and custom broadcast events
   useEffect(() => {
@@ -812,6 +926,70 @@ export const PlantTurnSharedProvider: React.FC<{ children: ReactNode }> = ({ chi
         (j.id && j.id.trim().toLowerCase() === target)
       );
     });
+  };
+
+  // Check if Event Name or Event Code already exists
+  const checkEventExists = (nameOrCode: string, excludeId?: string): boolean => {
+    if (!nameOrCode || !nameOrCode.trim()) return false;
+    const target = nameOrCode.trim().toLowerCase();
+    return events.some(ev => {
+      if (excludeId && ev.id === excludeId) return false;
+      return (
+        ev.eventName.trim().toLowerCase() === target ||
+        ev.eventCode.trim().toLowerCase() === target
+      );
+    });
+  };
+
+  // Event CRUD
+  const createEvent = (eventData: Partial<TurnoverEventRecord>): TurnoverEventRecord => {
+    const seq = events.length + 1;
+    const plantCode = eventData.plant === 'Sriracha' ? 'SR' : eventData.plant === 'All Plants' ? 'ALL' : 'PK';
+    const eventCode = (eventData.eventCode || `EVT-${plantCode}-2026-${String(seq).padStart(2, '0')}`).trim();
+    const eventName = (eventData.eventName || `Turnaround Event ${seq}`).trim();
+
+    const newEvent: TurnoverEventRecord = {
+      id: eventData.id || `evt-${Date.now()}`,
+      eventCode,
+      eventName,
+      eventType: eventData.eventType || 'Annual Turnaround (TA)',
+      plant: eventData.plant || 'Phra Khanong',
+      targetUnits: Array.isArray(eventData.targetUnits) && eventData.targetUnits.length > 0
+        ? eventData.targetUnits
+        : ['S2 - APS-1, APS-2, FCCU, GOHF-3'],
+      startDate: eventData.startDate || new Date().toISOString().slice(0, 10),
+      targetTurnoverDate: eventData.targetTurnoverDate || new Date(Date.now() + 86400000 * 14).toISOString().slice(0, 10),
+      milestone: eventData.milestone || 'Mechanical Completion & Ready for Startup (RFSU)',
+      coordinator: eventData.coordinator || 'นายวิชัย เลิศวิทยา (Lead Turnaround Supervisor)',
+      description: eventData.description || '',
+      status: eventData.status || 'Planning',
+      createdAt: eventData.createdAt || new Date().toISOString().slice(0, 10)
+    };
+
+    setEvents(prev => [newEvent, ...prev]);
+    logActivity('Create Event', 'Event & Job Management', `Created new event "${newEvent.eventName}" (${newEvent.eventCode}) for ${newEvent.plant}`);
+    return newEvent;
+  };
+
+  const updateEvent = (eventId: string, updates: Partial<TurnoverEventRecord>) => {
+    setEvents(prev => prev.map(ev => {
+      if (ev.id !== eventId) return ev;
+      const updated = { ...ev, ...updates };
+      // If eventName changed, also update jobs referencing the old eventName
+      if (updates.eventName && updates.eventName !== ev.eventName) {
+        setJobs(prevJobs => prevJobs.map(j => j.eventName === ev.eventName ? { ...j, eventName: updates.eventName! } : j));
+      }
+      return updated;
+    }));
+    logActivity('Update Event', 'Event & Job Management', `Updated event ${eventId}`);
+  };
+
+  const deleteEvent = (eventId: string) => {
+    const target = events.find(e => e.id === eventId);
+    setEvents(prev => prev.filter(ev => ev.id !== eventId));
+    if (target) {
+      logActivity('Delete Event', 'Event & Job Management', `Removed event "${target.eventName}" (${target.eventCode})`);
+    }
   };
 
   // Job CRUD
@@ -1399,6 +1577,7 @@ export const PlantTurnSharedProvider: React.FC<{ children: ReactNode }> = ({ chi
 
   // Reset helper
   const resetToDefaultData = () => {
+    setEvents(INITIAL_SHARED_EVENTS);
     setJobs(INITIAL_SHARED_JOBS);
     setSelectedJobIdState(INITIAL_SHARED_JOBS[0].id);
     setApprovalTasks(INITIAL_APPROVAL_TASKS);
@@ -1422,6 +1601,11 @@ export const PlantTurnSharedProvider: React.FC<{ children: ReactNode }> = ({ chi
         selectedJobId,
         selectedJob,
         setSelectedJobId,
+        events,
+        createEvent,
+        updateEvent,
+        deleteEvent,
+        checkEventExists,
         createJob,
         updateJob,
         deleteJob,

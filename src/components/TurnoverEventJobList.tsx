@@ -33,6 +33,7 @@ export default function TurnoverEventJobList({
   const { isTh } = useLanguage();
   const { 
     jobs, 
+    events,
     setSelectedJobId, 
     isJobCompleted, 
     isJobTurnoverBlocked, 
@@ -103,10 +104,13 @@ export default function TurnoverEventJobList({
     return jobs.filter(j => j.plant === globalPlantFilter);
   }, [jobs, globalPlantFilter]);
 
-  // Unique Events & Units for dropdown filters
+  // Unique Events & Units for dropdown filters (merging jobs + registered events)
   const uniqueEvents = useMemo(() => {
-    return Array.from(new Set(plantScopedJobs.map(j => j.eventName).filter(Boolean))).sort();
-  }, [plantScopedJobs]);
+    const scopedRegisteredEvents = events
+      .filter(ev => !globalPlantFilter || globalPlantFilter === 'All' || ev.plant === 'All Plants' || ev.plant === globalPlantFilter)
+      .map(ev => ev.eventName);
+    return Array.from(new Set([...scopedRegisteredEvents, ...plantScopedJobs.map(j => j.eventName)].filter(Boolean))).sort();
+  }, [events, plantScopedJobs, globalPlantFilter]);
 
   const uniqueUnits = useMemo(() => {
     return Array.from(new Set(plantScopedJobs.map(j => j.unit).filter(Boolean))).sort();
@@ -1239,6 +1243,20 @@ export default function TurnoverEventJobList({
                       <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                         {isTh ? 'ชื่ออีเวนต์ (Event Name) *' : 'Event Name *'}
                       </label>
+                      <select
+                        value={uniqueEvents.includes(newEventName) ? newEventName : '__custom__'}
+                        onChange={(e) => {
+                          if (e.target.value !== '__custom__') {
+                            setNewEventName(e.target.value);
+                          }
+                        }}
+                        className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-semibold outline-none cursor-pointer mb-1.5"
+                      >
+                        {uniqueEvents.map(ev => (
+                          <option key={ev} value={ev}>{ev}</option>
+                        ))}
+                        <option value="__custom__">{isTh ? '+ พิมพ์ชื่ออีเวนต์กำหนดเอง...' : '+ Custom Event Name...'}</option>
+                      </select>
                       <input
                         type="text"
                         required

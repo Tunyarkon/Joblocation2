@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useLanguage } from '../../context/LanguageContext';
+import { usePlantTurnShared } from '../../context/PlantTurnSharedContext';
 import { useThemeGate } from '../../utils/themeGate';
 import { 
   ScaffoldingSFJob, 
@@ -73,6 +74,7 @@ export default function ScaffoldingSF02RequestsList({
 }: ScaffoldingSF02RequestsListProps) {
   const { language } = useLanguage();
   const isTh = language === 'th';
+  const { events } = usePlantTurnShared();
 
   // Data Store State
   const [jobs, setJobs] = useState<ScaffoldingSFJob[]>(() => getStoredScaffoldingJobs());
@@ -96,7 +98,8 @@ export default function ScaffoldingSF02RequestsList({
   // Quick Stage Filter: 'all' | 'Execution' | 'In-use' | 'Dismantle' | 'Extension'
   const [stageFilter, setStageFilter] = useState<'all' | 'Execution' | 'In-use' | 'Dismantle' | 'Extension'>('all');
 
-  // Search & Filter Bar (7 fields)
+  // Search & Filter Bar (8 fields)
+  const [filterEvent, setFilterEvent] = useState<string>('all');
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateEnd, setDateEnd] = useState<string>('');
   const [filterJobType, setFilterJobType] = useState<string>('all');
@@ -185,6 +188,7 @@ export default function ScaffoldingSF02RequestsList({
       if (dateFrom && j.requiredDate < dateFrom) return false;
       if (dateEnd && j.requiredDate > dateEnd) return false;
 
+      if (filterEvent !== 'all' && (j.eventName || 'Annual Turnaround 2026') !== filterEvent) return false;
       if (filterJobType !== 'all' && j.jobType !== filterJobType) return false;
       if (filterContractor !== 'all' && j.company !== filterContractor) return false;
       if (filterScaffoldType !== 'all' && j.scaffoldType !== filterScaffoldType) return false;
@@ -200,7 +204,7 @@ export default function ScaffoldingSF02RequestsList({
 
       return true;
     });
-  }, [plantScopedJobs, stageFilter, dateFrom, dateEnd, filterJobType, filterContractor, filterScaffoldType, filterStatus, searchQuery]);
+  }, [plantScopedJobs, stageFilter, filterEvent, dateFrom, dateEnd, filterJobType, filterContractor, filterScaffoldType, filterStatus, searchQuery]);
 
 
 
@@ -543,7 +547,26 @@ export default function ScaffoldingSF02RequestsList({
           2. SEARCH & FILTER BAR (7 Fields - Crisp White in Light Mode, Slate-800 in Dark Mode)
          ========================================================================= */}
       <div className="bg-white dark:bg-slate-850 rounded-2xl border border-slate-200 dark:border-slate-700/80 p-4 shadow-xs space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 text-xs">
+          {/* 0. Event / Turnaround */}
+          <div>
+            <label className="block text-[11px] font-bold text-cyan-700 dark:text-cyan-400 mb-1">
+              {isTh ? 'Event / โครงการ' : 'Event / TA'}
+            </label>
+            <select
+              value={filterEvent}
+              onChange={(e) => setFilterEvent(e.target.value)}
+              className="w-full px-2.5 py-1.5 rounded-xl bg-cyan-50/60 dark:bg-cyan-950/30 border border-cyan-300 dark:border-cyan-800/80 text-xs font-bold text-slate-900 dark:text-slate-100 shadow-2xs focus:outline-none focus:ring-2 focus:ring-cyan-600/20 focus:border-cyan-600"
+            >
+              <option value="all">{isTh ? 'ทุก Event ทั้งหมด' : 'All Events'}</option>
+              {events.map(ev => (
+                <option key={ev.id} value={ev.eventName}>
+                  {ev.eventName} ({ev.eventCode})
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* 1. Date From */}
           <div>
             <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
@@ -659,11 +682,12 @@ export default function ScaffoldingSF02RequestsList({
         </div>
 
         {/* Filter Reset Button */}
-        {(dateFrom || dateEnd || filterJobType !== 'all' || filterContractor !== 'all' || filterScaffoldType !== 'all' || filterStatus !== 'all' || searchQuery) && (
+        {(filterEvent !== 'all' || dateFrom || dateEnd || filterJobType !== 'all' || filterContractor !== 'all' || filterScaffoldType !== 'all' || filterStatus !== 'all' || searchQuery) && (
           <div className="flex justify-end pt-1">
             <button
               type="button"
               onClick={() => {
+                setFilterEvent('all');
                 setDateFrom('');
                 setDateEnd('');
                 setFilterJobType('all');

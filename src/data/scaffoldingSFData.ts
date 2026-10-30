@@ -290,6 +290,8 @@ export interface ScaffoldingSFJob {
   jobId: string;
   jobNo?: string;
   sfNo?: string;
+  eventName?: string;
+  eventCode?: string;
   type?: string;
   jobDescription: string;
   description?: string;
@@ -320,6 +322,7 @@ export interface ScaffoldingSFJob {
   offHireDate: string; // YYYY-MM-DD (Auto-calculated from requiredDate + hirePeriod + extension)
   isArea?: boolean;
   width?: number;
+  length?: number;
   height?: number;
   elevationHeight?: number;
   rotation?: number;
@@ -342,13 +345,16 @@ export interface ScaffoldingSFJob {
   };
 
   // Lifecycle Stage: 1. Execution (Yellow Tag) | 2. In-use (Green Tag) | 3. Dismantle (Red Tag)
-  lifecycleStage: 'Execution' | 'In-use' | 'Dismantle';
+  lifecycleStage?: 'Execution' | 'In-use' | 'Dismantle';
   // Job Status: 'Requested' | 'Approved' | 'Rejected' | 'In Progress' | 'Completed' | 'Under Review'
   status: 'Requested' | 'Approved' | 'Rejected' | 'In Progress' | 'Completed' | 'Under Review';
-  jobType: 'BCP Job' | 'Contractor Job';
-  scaffoldType: 'Standard' | 'Heavy Duty' | '360° Ring' | 'Cantilever' | 'Suspended';
-  progress: number; // 0 - 100%
-  priority: 'Normal' | 'Urgent' | 'Emergency';
+  requestStatus?: string;
+  workflowState?: string;
+  requestDate?: string;
+  jobType?: 'BCP Job' | 'Contractor Job';
+  scaffoldType: 'Standard' | 'Heavy Duty' | '360° Ring' | 'Cantilever' | 'Suspended' | string;
+  progress?: number; // 0 - 100%
+  priority?: 'Normal' | 'Urgent' | 'Emergency';
   approvalRemarks?: string;
   rejectionRemarks?: string;
   fieldChecklist?: {
@@ -421,6 +427,8 @@ export interface ScaffoldingSFJob {
     scaffoldTag: string;
   };
 
+  attachments?: any[];
+  tags?: string[];
   requestorName?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -590,6 +598,8 @@ export const INITIAL_SCAFFOLDING_JOBS: ScaffoldingSFJob[] = [
     id: "SF-2026-0841",
     jobId: "SF-2026-0841",
     jobNo: "SF-2026-0841",
+    eventName: "Annual Turnaround 2026",
+    eventCode: "EVT-TA-2026-01",
     equipmentId: "11-C-101",
     equipmentTag: "11-C-101",
     functionalLocation: "IMD",

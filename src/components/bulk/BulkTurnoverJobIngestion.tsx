@@ -154,6 +154,9 @@ interface BulkTurnoverJobIngestionProps {
   onBatchCreateTurnoverJobs: (newJobs: JobRecord[]) => void;
   onClose?: () => void;
   onSwitchToSingle?: () => void;
+  onOpenCreateEvent?: () => void;
+  selectedEventName?: string;
+  onSelectEventName?: (eventName: string) => void;
   onSuccess?: (count: number) => void;
 }
 
@@ -161,12 +164,24 @@ export default function BulkTurnoverJobIngestion({
   onBatchCreateTurnoverJobs,
   onClose,
   onSwitchToSingle,
+  onOpenCreateEvent,
+  selectedEventName,
+  onSelectEventName,
   onSuccess
 }: BulkTurnoverJobIngestionProps) {
   const { language } = useLanguage();
   const isTh = language === 'th';
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { jobs, checkJobIdExists } = usePlantTurnShared();
+  const { jobs, events, checkJobIdExists } = usePlantTurnShared();
+  const [internalEventName, setInternalEventName] = useState<string>(
+    selectedEventName || events[0]?.eventName || 'Annual Turnaround 2026'
+  );
+  const activeEventName = selectedEventName || internalEventName;
+  const handleEventChange = (name: string) => {
+    setInternalEventName(name);
+    if (onSelectEventName) onSelectEventName(name);
+  };
+  const selectedEventObj = events.find(e => e.eventName === activeEventName);
 
   // Core Data & Processing States
   const [validatedRows, setValidatedRows] = useState<BulkTurnoverRow[]>([]);
@@ -549,7 +564,7 @@ export default function BulkTurnoverJobIngestion({
           jobNo: cleanJobId,
           orderNo: cleanJobId,
           title: displayTitle,
-          eventName: 'Annual Turnaround 2026',
+          eventName: activeEventName || 'Annual Turnaround 2026',
           workOrder: cleanJobId,
           contractor: 'Turnover Project Team',
           requester: row.jobLead || 'Turnover Engineer',
@@ -668,6 +683,51 @@ export default function BulkTurnoverJobIngestion({
               <span>CSV</span>
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Target Event Binding Bar for Bulk Ingestion */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-mono">
+              {isTh ? 'กำหนด Event เป้าหมาย' : 'Target Event Binding'}
+            </span>
+            {selectedEventObj && (
+              <span className="text-[11px] font-mono font-bold text-slate-500 dark:text-slate-400">
+                {selectedEventObj.eventCode} • {selectedEventObj.plant} ({selectedEventObj.startDate} → {selectedEventObj.targetTurnoverDate})
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-slate-600 dark:text-slate-400">
+            {isTh
+              ? 'เลือกรอบงานซ่อมบำรุง (Turnaround / Overhaul Event) ที่ต้องการผูกกับแพ็กเกจงานทั้งหมดในชุดนำเข้านี้'
+              : 'Select the Turnaround / Overhaul Event to bind all imported job packages in this batch.'}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2.5 flex-wrap shrink-0">
+          <select
+            value={activeEventName}
+            onChange={(e) => handleEventChange(e.target.value)}
+            className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 outline-none cursor-pointer min-w-[240px]"
+          >
+            {events.map(ev => (
+              <option key={ev.id} value={ev.eventName}>
+                {ev.eventName} ({ev.plant} • {ev.eventCode})
+              </option>
+            ))}
+          </select>
+
+          {onOpenCreateEvent && (
+            <button
+              type="button"
+              onClick={onOpenCreateEvent}
+              className="px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-bold transition cursor-pointer"
+            >
+              + {isTh ? 'สร้าง Event ใหม่' : 'New Event'}
+            </button>
+          )}
         </div>
       </div>
 

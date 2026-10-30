@@ -8,7 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = Number(process.env.PORT) || 3030;
+const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
 
 app.use(express.json());
@@ -32,7 +32,7 @@ if (!fs.existsSync(distPath) || !fs.existsSync(indexPath)) {
   }
 }
 
-// Serve static assets from dist under /cranesystem and fallback
+// Serve static assets from dist under root and /cranesystem
 if (fs.existsSync(distPath)) {
   app.use('/cranesystem', express.static(distPath, {
     maxAge: '1d',
@@ -44,13 +44,8 @@ if (fs.existsSync(distPath)) {
   }));
 }
 
-// Redirect root to /cranesystem/
-app.get('/', (_req, res) => {
-  res.redirect('/cranesystem/');
-});
-
-// Catch-all route to serve SPA index.html for /cranesystem and fallback
-app.get(['/cranesystem', '/cranesystem/*', '*'], (_req, res) => {
+// Catch-all route to serve SPA index.html for root, /cranesystem, and fallback
+app.get(['/', '/cranesystem', '/cranesystem/*', '*'], (_req, res) => {
   if (fs.existsSync(indexPath)) {
     res.sendFile(indexPath);
   } else {

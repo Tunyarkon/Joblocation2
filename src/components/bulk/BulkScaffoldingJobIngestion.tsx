@@ -10,9 +10,12 @@ import {
   ClipboardPaste,
   RefreshCw,
   Check,
-  X
+  X,
+  Calendar,
+  Plus
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { usePlantTurnShared } from '../../context/PlantTurnSharedContext';
 import {
   ScaffoldingSFJob,
   addScaffoldingJob,
@@ -182,14 +185,30 @@ export interface ValidationErrorDetail {
 interface BulkScaffoldingJobIngestionProps {
   onNavigateToList?: () => void;
   onSwitchToSingle?: () => void;
+  selectedEventName?: string;
+  onSelectEventName?: (name: string) => void;
+  onOpenCreateEvent?: () => void;
 }
 
 export default function BulkScaffoldingJobIngestion({
   onNavigateToList,
-  onSwitchToSingle
+  onSwitchToSingle,
+  selectedEventName: propEventName,
+  onSelectEventName,
+  onOpenCreateEvent
 }: BulkScaffoldingJobIngestionProps) {
   const { language } = useLanguage();
   const isTh = language === 'th';
+  const { events } = usePlantTurnShared();
+  const [localEventName, setLocalEventName] = useState<string>(propEventName || 'Annual Turnaround 2026');
+  const activeEventName = propEventName !== undefined ? propEventName : localEventName;
+  const activeEventRecord = events.find(ev => ev.eventName === activeEventName);
+
+  const handleEventChange = (name: string) => {
+    setLocalEventName(name);
+    if (onSelectEventName) onSelectEventName(name);
+  };
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Core Data & Processing States
@@ -559,6 +578,8 @@ export default function BulkScaffoldingJobIngestion({
           id: row.jobId,
           jobId: row.jobId,
           sfNo: row.jobId,
+          eventName: activeEventName || 'Annual Turnaround 2026',
+          eventCode: activeEventRecord?.eventCode || 'EVT-TA-2026-01',
           description: row.jobDescription,
           jobDescription: row.jobDescription,
           plant: row.plant,
@@ -681,6 +702,57 @@ export default function BulkScaffoldingJobIngestion({
               <span>CSV</span>
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Target Event Binding Selector Bar */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-cyan-200 dark:border-cyan-900/60 p-4 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-cyan-50 dark:bg-cyan-950/60 border border-cyan-200 dark:border-cyan-800 flex items-center justify-center text-cyan-600 dark:text-cyan-400 shrink-0">
+            <Calendar size={18} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-black text-slate-900 dark:text-white">
+                {isTh ? 'ผูกชุดข้อมูลนำเข้ากับ Event (Target Event Binding)' : 'Target Event Binding for Bulk Scaffold Import'}
+              </span>
+              {activeEventRecord && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-cyan-100 dark:bg-cyan-900/50 text-cyan-700 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800">
+                  {activeEventRecord.eventCode} · {activeEventRecord.eventType}
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+              {isTh
+                ? 'ใบงานนั่งร้านทุกแถวที่นำเข้าในรอบนี้จะถูกผูกเข้ากับ Event ที่เลือกโดยอัตโนมัติ'
+                : 'All scaffolding jobs imported in this batch will automatically be linked to the selected Event.'}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <select
+            value={activeEventName}
+            onChange={(e) => handleEventChange(e.target.value)}
+            className="px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 min-w-[240px]"
+          >
+            {events.map(ev => (
+              <option key={ev.id} value={ev.eventName}>
+                {ev.eventName} ({ev.eventCode})
+              </option>
+            ))}
+          </select>
+
+          {onOpenCreateEvent && (
+            <button
+              type="button"
+              onClick={onOpenCreateEvent}
+              className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+            >
+              <Plus size={14} />
+              <span>{isTh ? '+ สร้าง Event ใหม่' : '+ New Event'}</span>
+            </button>
+          )}
         </div>
       </div>
 

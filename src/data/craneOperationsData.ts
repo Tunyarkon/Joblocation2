@@ -55,6 +55,8 @@ export interface UnifiedCraneJob {
   functionalLocation?: string;
   unit?: string;
   plant: 'Phra Khanong' | 'Sriracha';
+  eventName?: string;
+  eventCode?: string;
   area?: string;
   title?: string;
   description?: string;
@@ -119,11 +121,16 @@ export interface UnifiedCraneJob {
   workEndDateTime?: string;
   shift?: 'Day' | 'Night' | 'All day';
   craneModel?: string;           // Ex. GR-250N, GR-500EXL
+  machineType?: string;
   capacityRequired?: number;     // 8/10/25/50/80/100/120/160/200/360/400/500
+  boomLength?: number;
   boomLengthM?: number;
+  workingRadius?: number;
   totalWeightTon?: number;
   liftPlanLink?: string;
   additionalRemarks?: string;
+  requestor?: string;
+  provider?: string;
   submittedBy?: string;
   submissionDate?: string;
   reviewBy?: string;
@@ -273,6 +280,8 @@ export const DEFAULT_INITIAL_CRANE_JOBS: UnifiedCraneJob[] = [
     equipmentId: '11-C-101',
     functionalLocation: '11-APS1 (Atmospheric Pipestill 1)',
     plant: 'Phra Khanong',
+    eventName: 'Annual Turnaround 2026',
+    eventCode: 'EVT-PK-2026-01',
     area: 'BCP Refinery Area 1 (CDU-1)',
     description: 'Crude Distillation Column Overhead Condenser Heavy Lift & Replacement',
     type: 'Crane Spot (300T)',
@@ -315,6 +324,8 @@ export const DEFAULT_INITIAL_CRANE_JOBS: UnifiedCraneJob[] = [
     equipmentId: '11-E-102B',
     functionalLocation: '11-APS1 (Atmospheric Pipestill 1)',
     plant: 'Phra Khanong',
+    eventName: 'Annual Turnaround 2026',
+    eventCode: 'EVT-PK-2026-01',
     area: 'BCP Refinery Area 1 (Preheat Bay)',
     description: 'Reboiler Exchanger Tube Bundle Extraction & Winch Traction',
     type: 'Crane Pull (100T)',
@@ -357,6 +368,8 @@ export const DEFAULT_INITIAL_CRANE_JOBS: UnifiedCraneJob[] = [
     equipmentId: '12-R-101',
     functionalLocation: '12-HCU (Hydrocracking Unit)',
     plant: 'Phra Khanong',
+    eventName: 'Major Overhaul Q3',
+    eventCode: 'EVT-PK-2026-02',
     area: 'Zone C Construction & Expansion',
     description: 'Hydrocracker High-Pressure Reactor Catalyst Loading & Crane Spool Lift',
     type: 'Crane Spot (500T)',
@@ -391,6 +404,8 @@ export const DEFAULT_INITIAL_CRANE_JOBS: UnifiedCraneJob[] = [
     equipmentId: 'SR-V-201',
     functionalLocation: 'Sriracha Crude Unit Complex',
     plant: 'Sriracha',
+    eventName: 'TA-2026 Vacuum Overhaul',
+    eventCode: 'EVT-SR-2026-01',
     area: 'Sriracha Terminal Complex',
     description: 'Vacuum Furnace Convection Tube Module Structural Lifting',
     type: 'Crane Spot (160T)',
@@ -427,6 +442,8 @@ export const DEFAULT_INITIAL_CRANE_JOBS: UnifiedCraneJob[] = [
     equipmentId: '11-H-101',
     functionalLocation: '11-APS1 (Atmospheric Pipestill 1)',
     plant: 'Phra Khanong',
+    eventName: 'Annual Turnaround 2026',
+    eventCode: 'EVT-PK-2026-01',
     area: 'BCP Refinery Area 1 (Furnaces)',
     description: 'Furnace Fired Heater Burner Deck Component Replacement & Rigging',
     type: 'Crane Spot (50T)',

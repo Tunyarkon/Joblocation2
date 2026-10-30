@@ -35,6 +35,7 @@ import {
   clearActiveCraneNavContext
 } from '../data/craneOperationsData';
 import { useLanguage } from '../context/LanguageContext';
+import { usePlantTurnShared } from '../context/PlantTurnSharedContext';
 import { useThemeGate } from '../utils/themeGate';
 import essoPlotPlanBg from '../assets/esso_sriracha_master_plotplan.jpg';
 
@@ -82,6 +83,8 @@ type JobRequest = {
   inProgressChecklist?: Record<string, boolean>;
   remarks?: string;
   attachments?: JobAttachment[];
+  eventName?: string;
+  eventCode?: string;
 };
 
 const INITIAL_JOBS: JobRequest[] = Array.from({ length: 525 }, (_, i) => {
@@ -128,10 +131,20 @@ const INITIAL_JOBS: JobRequest[] = Array.from({ length: 525 }, (_, i) => {
   const reqStatus: CraneRequestStatus = status === 'Approved' ? 'Approved' : status === 'In Progress' ? 'In Progress' : status === 'Completed' ? 'Completed' : status === 'Rejected' ? 'Rejected' : 'Submitted';
   const assignStatus: CraneAssignmentStatus = (status === 'In Progress' || status === 'Completed' || status === 'Approved') ? 'Assigned' : 'Unassigned';
 
+  const eventList = [
+    { name: 'Annual Turnaround 2026', code: 'EVT-TA-2026-01' },
+    { name: 'Major Overhaul Q3', code: 'EVT-MO-2026-Q3' },
+    { name: 'TA-2026 Vacuum Overhaul', code: 'EVT-VAC-2026-02' },
+    { name: 'Routine Shutdown Oct', code: 'EVT-SD-2026-10' }
+  ];
+  const selectedEv = eventList[id % eventList.length];
+
   return {
     id,
     jobNo: `ICM-26${String(id).padStart(5, '0')}`,
     requestNo: `REQ-CR26-${String(id).padStart(4, '0')}`,
+    eventName: selectedEv.name,
+    eventCode: selectedEv.code,
     requestType: reqType,
     requestStatus: reqStatus,
     assignmentStatus: assignStatus,
@@ -194,6 +207,7 @@ export default function RequestList({
   globalPlantFilter?: 'All' | 'Phra Khanong' | 'Sriracha';
 }) {
   const { isTh } = useLanguage();
+  const { events } = usePlantTurnShared();
   const [viewMode, setViewMode] = useState<'table' | 'plan' | 'calendar'>('table');
   const [searchTerm, setSearchTerm] = useState('');
   const [jobs, setJobs] = useState<JobRequest[]>(() => {
@@ -236,6 +250,7 @@ export default function RequestList({
     status: 'All',
     requestType: 'All',
     assignmentStatus: 'All',
+    eventName: 'All',
     woNo: ''
   });
 
@@ -540,6 +555,7 @@ export default function RequestList({
                           (filters.status === 'Under Review' && (job.status === 'Pending' || job.status === 'Under Review'));
       const matchRequestType = filters.requestType === 'All' || job.requestType === filters.requestType;
       const matchAssignment = filters.assignmentStatus === 'All' || job.assignmentStatus === filters.assignmentStatus;
+      const matchEvent = filters.eventName === 'All' || (job.eventName || 'Annual Turnaround 2026') === filters.eventName;
       
       const jobDate = (job.dateFrom || (job as any).date || (job as any).workStartDate || '2026-10-15').split(' ')[0];
       const matchDate = (!filters.dateFrom || jobDate >= filters.dateFrom) && 
@@ -550,7 +566,7 @@ export default function RequestList({
         if (job.plant !== globalPlantFilter) return false;
       }
 
-      return matchSearch && matchWo && matchJobType && matchContractor && matchMcType && matchStatus && matchRequestType && matchAssignment && matchDate;
+      return matchSearch && matchWo && matchJobType && matchContractor && matchMcType && matchStatus && matchRequestType && matchAssignment && matchEvent && matchDate;
     });
 
     if (sortConfig !== null) {
@@ -867,7 +883,26 @@ export default function RequestList({
       {/* Search & Advanced Filters */}
       {viewMode !== 'calendar' && (
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 p-4 transition-colors duration-300">
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 items-end">
+        <div className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-2.5 items-end">
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest flex items-center gap-1">
+              <CalendarDays size={11} />
+              <span>{isTh ? 'Event / โครงการ' : 'Event / TA'}</span>
+            </label>
+            <select
+              className="w-full bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/70 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors"
+              value={filters.eventName}
+              onChange={(e) => setFilters({ ...filters, eventName: e.target.value })}
+            >
+              <option value="All">{isTh ? 'ทุก Event ทั้งหมด' : 'All Events'}</option>
+              {events.map(ev => (
+                <option key={ev.id} value={ev.eventName}>
+                  {ev.eventName} ({ev.eventCode})
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="space-y-1">
             <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-1">
               <Calendar size={11} className="text-slate-400 dark:text-slate-500" />
@@ -875,7 +910,7 @@ export default function RequestList({
             </label>
             <input 
               type="date" 
-              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors" 
+              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors" 
               value={filters.dateFrom}
               onChange={(e) => setFilters({...filters, dateFrom: e.target.value})}
             />
@@ -888,7 +923,7 @@ export default function RequestList({
             </label>
             <input 
               type="date" 
-              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors" 
+              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors" 
               value={filters.dateEnd}
               onChange={(e) => setFilters({...filters, dateEnd: e.target.value})}
             />
@@ -1000,7 +1035,7 @@ export default function RequestList({
         </div>
 
         {/* Clear Filters Action Bar */}
-        {(searchTerm || filters.woNo || filters.requestType !== 'All' || filters.status !== 'All' || filters.assignmentStatus !== 'All' || filters.contractor !== 'All' || filters.mcType !== 'All' || filters.dateFrom !== '2026-09-01' || filters.dateEnd !== '2026-12-31') && (
+        {(searchTerm || filters.woNo || filters.eventName !== 'All' || filters.requestType !== 'All' || filters.status !== 'All' || filters.assignmentStatus !== 'All' || filters.contractor !== 'All' || filters.mcType !== 'All' || filters.dateFrom !== '2026-09-01' || filters.dateEnd !== '2026-12-31') && (
           <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
             <span className="text-slate-500 dark:text-slate-400 text-[11px]">
               {isTh 
@@ -1020,6 +1055,7 @@ export default function RequestList({
                   status: 'All',
                   requestType: 'All',
                   assignmentStatus: 'All',
+                  eventName: 'All',
                   woNo: ''
                 });
               }}
